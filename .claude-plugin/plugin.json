@@ -7,5 +7,6 @@
   },
   "repository": "https://github.com/mickzijdel/rails-toolkit",
   "license": "MIT",
+  "skills": "./vendor/rails-upgrade-skill/",
   "keywords": ["rails", "ruby", "hotwire", "37signals", "turbo", "stimulus"]
 }

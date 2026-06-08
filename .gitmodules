@@ -1,0 +1,3 @@
+[submodule "vendor/rails-upgrade-skill"]
+	path = vendor/rails-upgrade-skill
+	url = https://github.com/ombulabs/claude-code_rails-upgrade-skill

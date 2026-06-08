@@ -47,3 +47,4 @@ Factory and fixture changes have cascading effects across the entire suite. Afte
 - Extracting ViewComponents → [[rails-viewcomponents]]
 - New Rails 8 app setup → [[rails-project-setup]]
 - Writing tests → [[rails-testing]]
+- **Upgrading Rails versions** (2.3 → 8.1, breaking changes, deprecations, multi-hop plans) → [[rails-upgrade]] — the vendored OmbuLabs/FastRuby.io upgrade skill. Reach for it whenever an upgrade is on the table; do **not** hand-roll the version bump.
