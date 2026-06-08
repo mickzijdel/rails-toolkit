@@ -4,3 +4,5 @@ Make sure to check all of the following and make sure they are up-to-date after 
 3. plugin.json
 4. README.md
 5. CLAUDE.md
+
+Bump the plugin version on every commit. Patch version for small fixes, minor version for more substantial changes (new skill or tool).
