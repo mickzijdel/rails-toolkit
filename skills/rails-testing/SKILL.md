@@ -738,6 +738,52 @@ end
 
 ---
 
+## 11. i18n-Customised Errors & Editors You Can't `fill_in`
+
+**Problem:** Two recurring test traps — asserting on Rails' default validation strings when the
+app has customised them, and trying to drive a rich-text/contenteditable field with `fill_in`.
+
+**Solution:** Assert on `errors[:field].present?` (or the *configured* message), and cover
+forms whose editor overwrites its value on submit with **request-level** tests instead of a
+browser submit.
+
+**Example:**
+
+```ruby
+# Validation messages are often i18n-customised (e.g. presence reads
+# "must not be blank." not Rails' default "can't be blank"). Don't hard-code
+# the default literal — assert presence, or match the configured message.
+test "title is required" do
+  opportunity = Opportunity.new(title: nil)
+  assert_not opportunity.valid?
+  assert opportunity.errors[:title].present?              # robust
+  # assert_includes opportunity.errors[:title], "must not be blank."  # if asserting text
+end
+
+# A markdown/contenteditable editor syncs its hidden textarea ON SUBMIT,
+# overwriting anything Capybara/Playwright `fill_in`/`fill` injected — so a
+# browser submit re-renders with a blank-field error. Cover via a request test:
+class OpportunitiesControllerTest < ActionDispatch::IntegrationTest
+  test "create with a description" do
+    assert_difference -> { Opportunity.count }, +1 do
+      post opportunities_path, params: {
+        opportunity: { title: "Stage Manager", description: "# Role\nDetails here" }
+      }
+    end
+    assert_equal "# Role\nDetails here", Opportunity.last.description
+  end
+end
+```
+
+**Key Points:**
+- Assert `errors[:field].present?` rather than Rails' default message string — apps override messages via i18n.
+- Editors that sync a contenteditable into a hidden field **on submit** can't be driven by `fill_in` / Playwright `fill`; the injected value is overwritten. Use request-level (`post :create`) tests for the persistence path.
+- This complements the browser-side `fill_in_lexxy` `execute_script` workaround (Section 4) — that handles editors that read their value live; request tests are the fallback when the value is overwritten only at submit time.
+- Other Stimulus interactions on the same form (nested-form Add/Remove, toggles) still verify fine in system tests.
+- If an app translates admin index/search-form headers via simple_form labels, a new column used as a header or search field needs a `simple_form.labels.defaults.<key>` entry, or the page raises "Translation missing".
+
+---
+
 ## Quick Reference
 
 | Command | Description |
@@ -762,3 +808,5 @@ end
 | `include VcrTestHelper` | Record external HTTP calls |
 | `assert_difference` | Verify count changes |
 | `assert_turbo_stream` | Verify Turbo responses |
+| `assert errors[:field].present?` | Assert validation failure without the literal i18n message |
+| `post create_path, params: {...}` | Test forms whose editor can't be `fill_in`-ed |

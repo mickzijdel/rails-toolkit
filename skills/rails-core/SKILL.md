@@ -26,9 +26,57 @@ For tables that already have rows, **never** add a non-nullable or unique column
 1. Add the column as **nullable**.
 2. **Backfill** the data.
 3. Add the **constraint** (NOT NULL / unique) in a follow-up migration.
-See [[rails-models]] for transactions and data-integrity patterns.
+See [[rails-models]] for transactions and data-integrity patterns. For the **legacy
+integer-primary-key foreign-key gotcha** when adding a child table, see [[rails-models]].
 
-### 6. Run the FULL suite after factory/fixture changes
+### 6. Multi-database apps: `db:rollback` needs the namespaced task
+In an app configured with multiple databases (e.g. `primary` / `queue` / `cache`), a bare
+`bin/rails db:rollback` aborts with *"you must run the namespaced task"*. Target the database
+explicitly: `bin/rails db:rollback:primary STEP=n` (and likewise for the other migration tasks
+that operate per-database). See [[rails-models]].
+
+### 7. Restart the dev server after a migration — it caches the schema at boot
+A running dev server reads the DB schema **once at boot**. After a migration that adds
+columns — especially an **enum-backed** column — the already-running process keeps 500ing
+(`Undeclared attribute type for enum ... must be backed by a database column`) until it is
+restarted. This is **not** a code bug; restart after migrating.
+
+How you restart depends on the server: **Puma hot-restarts via `SIGUSR2`, not
+`touch tmp/restart.txt`** (that's a Passenger-only trick and does nothing under Puma). Sending
+`SIGUSR2` makes Puma re-exec in place keeping the **same PID**, so a foreman/`bin/dev` dev group
+doesn't see a child die and tear everything down (Vite and friends keep running). Everyday app
+code (models, controllers, views) auto-reloads and needs no restart — only **boot-time state**
+does (initializers, `config/*`, `Gemfile`, env vars, new/enum-backed columns).
+
+A drop-in `bin/restart-web` wrapper (adjust the `pgrep` pattern to your app's Puma process tag):
+
+```sh
+#!/usr/bin/env sh
+# Hot-restart the running Puma dev server in place (SIGUSR2).
+#
+# Puma re-execs itself on SIGUSR2, keeping the same PID, so foreman does not
+# see a child die and tear down the whole dev group — Vite keeps running.
+# Use this to reload boot-time state: config/initializers, config/*, Gemfile,
+# env vars, and new/enum-backed DB columns. Everyday app code (models,
+# controllers, views) is auto-reloaded and needs no restart.
+#
+# Note: this is NOT `touch tmp/restart.txt` — that only works with Passenger.
+
+set -e
+
+pid=$(pgrep -f 'puma .* \[YourApp\]' || true)   # match your app's Puma process tag
+
+if [ -z "$pid" ]; then
+  echo "No running Puma dev server found (is bin/dev running?)." >&2
+  exit 1
+fi
+
+echo "Hot-restarting Puma (pid $pid) via SIGUSR2..."
+kill -USR2 "$pid"
+echo "Done. Watch the bin/dev terminal for the restart log."
+```
+
+### 8. Run the FULL suite after factory/fixture changes
 Factory and fixture changes have cascading effects across the entire suite. After any such change (or when optimizing/refactoring factories), run the **full** test suite — not just the files you touched. Use `PARALLEL_WORKERS=1` when you need readable, debuggable output. See [[rails-testing]].
 
 ## When to reach for the other skills

@@ -848,6 +848,41 @@ end
 
 ---
 
+## 13. Migrations & Foreign Keys (legacy integer PKs)
+
+**Problem:** A migration adding a child table fails with a column-type mismatch when the parent
+table predates Rails defaulting primary keys to `bigint`.
+
+**Solution:** Older tables may have `id: :integer` rather than `bigint`. A foreign key pointing
+*to* such a table must declare the **matching** type, or the FK migration aborts. Check the
+parent's `id:` in `db/schema.rb` before writing the reference.
+
+**Example:**
+
+```ruby
+# db/schema.rb shows: create_table "opportunities", id: :integer do |t| ...
+class CreateOpportunityRoles < ActiveRecord::Migration[8.1]
+  def change
+    create_table :opportunity_roles do |t|   # new table → bigint id, fine
+      # FK to a legacy integer-PK parent MUST match its type:
+      t.references :opportunity, type: :integer, foreign_key: true
+      # or: t.integer :opportunity_id
+
+      t.string :name, null: false
+      t.timestamps
+    end
+  end
+end
+```
+
+**Key Points:**
+- New tables you create default to `bigint` `id` — FKs *pointing to them* need no `type:`.
+- Only the FK *referencing a legacy integer PK* needs `type: :integer`; mismatches abort the migration.
+- For populated tables, adding non-null/unique columns is still multi-step — see [[rails-core]] rule 5.
+- In a multi-database app, roll back with the namespaced task: `bin/rails db:rollback:primary STEP=n` (see [[rails-core]] rule 6).
+
+---
+
 ## Quick Reference
 
 | Pattern | When to Use |
@@ -862,3 +897,4 @@ end
 | Polymorphic associations | Multiple models relating to the same record type |
 | `after_*_commit` callbacks | External side effects (jobs, broadcasts) |
 | Association extensions | Custom collection methods |
+| `t.references :x, type: :integer` | FK pointing to a legacy `id: :integer` parent table |

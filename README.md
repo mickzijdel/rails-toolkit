@@ -6,7 +6,7 @@ gotchas skill, and a Rails-detection session hook.
 ## What's inside
 
 ### Skills (`rails-toolkit:<name>`)
-- **rails-core** — read first; the project owner's hard-won Rails rules (fixtures, migrations, Stimulus LSP, server-side validation, gem docs, full-suite-after-factory-changes).
+- **rails-core** — read first; the project owner's hard-won Rails rules (fixtures, migrations, multi-database rollback, dev-server schema-cache restart, Stimulus LSP, server-side validation, gem docs, full-suite-after-factory-changes).
 - **rails-philosophy** — vanilla Rails, rich models, REST everything, Solid Stack, Hotwire first.
 - **rails-style** — method ordering, conditionals, REST routing, naming.
 - **rails-models**, **rails-controllers**, **rails-jobs**, **rails-turbo**, **rails-stimulus**, **rails-viewcomponents**, **rails-activestorage** — area guides.
