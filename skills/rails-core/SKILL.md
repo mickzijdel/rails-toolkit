@@ -89,6 +89,7 @@ Factory and fixture changes have cascading effects across the entire suite. Afte
 - Stimulus controllers → [[rails-stimulus]]
 - Caching, ETags, N+1 → [[rails-performance]]
 - Schema/index/query audits → [[rails-database-performance]]
+- Auditing / reviewing an existing or inherited app, tech-debt health-check → [[rails-audit]]
 - Auth & authorization → [[rails-security]]
 - URL-based tenancy, Current → [[rails-multi-tenancy]]
 - File uploads, variants → [[rails-activestorage]]

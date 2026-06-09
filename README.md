@@ -12,6 +12,7 @@ gotchas skill, and a Rails-detection session hook.
 - **rails-models**, **rails-controllers**, **rails-jobs**, **rails-turbo**, **rails-stimulus**, **rails-viewcomponents**, **rails-activestorage** — area guides.
 - **rails-testing** — fixtures, system tests, VCR, parallel execution.
 - **rails-performance**, **rails-database-performance** — caching/ETags/N+1 and schema/index audits.
+- **rails-audit** — top-level health-check of an existing/inherited app (version pinning, bundler-audit/brakeman, exposed secrets, seeds, tech debt) that orchestrates the deep-dive skills and emits a severity-ranked report.
 - **rails-multi-tenancy**, **rails-security**, **rails-project-setup**.
 
 ### Hook
