@@ -8,6 +8,8 @@
     "**/.venv/**",
     "**/node_modules/**",
     "**/vendor/**",
+    "**/dist/**",
+    "**/build/**",
     "**/db/schema.rb",
     "**/db/structure.sql",
     "**/app/assets/builds/**"
