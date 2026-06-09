@@ -1,0 +1,90 @@
+// dev-env standard (dev-hooks:dev-env-setup) — version tracked via DEV_ENV_VERSION in mise.toml.
+// For shell-heavy repos and Claude Code plugins (hooks/scripts/*.sh, bin/*, *.py).
+amends "package://github.com/jdx/hk/releases/download/v1.46.0/hk@1.46.0#/Config.pkl"
+import "package://github.com/jdx/hk/releases/download/v1.46.0/hk@1.46.0#/Builtins.pkl"
+
+local linters = new Mapping<String, Step> {
+    ["shellcheck"] = Builtins.shellcheck
+    ["shfmt"] = Builtins.shfmt
+    ["ruff-check"] {
+        glob = "**/*.py"
+        check = "ruff check --force-exclude {{ files }}"
+        fix = "ruff check --force-exclude --fix {{ files }}"
+    }
+    ["ruff-format"] {
+        glob = "**/*.py"
+        check = "ruff format --force-exclude --diff {{ files }}"
+        fix = "ruff format --force-exclude {{ files }}"
+    }
+    // --- Extensionless scripts (bin/foo, hooks) ----------------------------------
+    // CC-plugin / script repos keep their executables extensionless so they run as
+    // bare commands, so the *.sh / *.py globs above never match them. These companion
+    // steps detect such scripts by SHEBANG instead (same trick the `vulture` check
+    // step uses), so shellcheck/shfmt/ruff cover them with no per-repo glob editing.
+    // They carry no glob (so hk runs them whenever anything is staged) and ignore
+    // {{ files }} — the inner `git ls-files | head -n1 | grep` picks the real targets,
+    // and `xargs -r` no-ops when there are none (a repo with no extensionless scripts is
+    // unaffected). check-only by design: auto-fixing would need an explicit `stage`
+    // glob that extensionless paths can't express cleanly, so a flagged script is
+    // fixed by hand (or `ruff check --fix` / `shfmt -w`). They run full-tree, not
+    // incremental — fine for the handful of scripts such a repo carries.
+    // NOTE: a shebang is only a shebang on line 1 — we match `head -n1`, not any line,
+    // so markdown/docs that embed a `#!/bin/bash` snippet in a fenced code block are not
+    // misdetected as scripts (which would make shellcheck/shfmt try to parse the prose).
+    ["shellcheck-scripts"] {
+        check = "git ls-files ':!*.sh' ':!*.bash' | while IFS= read -r f; do head -n1 \"$f\" 2>/dev/null | grep -qE '^#!.*\\b(ba)?sh\\b' && printf '%s\\n' \"$f\"; done | xargs -r shellcheck"
+    }
+    ["shfmt-scripts"] {
+        check = "git ls-files ':!*.sh' ':!*.bash' ':!*.mksh' ':!*.bats' ':!*.zsh' | while IFS= read -r f; do head -n1 \"$f\" 2>/dev/null | grep -qE '^#!.*\\b(ba)?sh\\b' && printf '%s\\n' \"$f\"; done | xargs -r shfmt -d"
+    }
+    ["ruff-check-scripts"] {
+        check = "git ls-files ':!*.py' ':!*.pyi' | while IFS= read -r f; do head -n1 \"$f\" 2>/dev/null | grep -qE '^#!.*(python|uv run)' && printf '%s\\n' \"$f\"; done | xargs -r ruff check --force-exclude"
+    }
+    ["ruff-format-scripts"] {
+        check = "git ls-files ':!*.py' ':!*.pyi' | while IFS= read -r f; do head -n1 \"$f\" 2>/dev/null | grep -qE '^#!.*(python|uv run)' && printf '%s\\n' \"$f\"; done | xargs -r ruff format --force-exclude --diff"
+    }
+    // --- Audits (dead-code + duplication) ---------------------------------------
+    // These run on pre-commit too (not just `check`/CI): vulture is ~0.15s and jscpd
+    // ~1s warm online (cooldown resolve + scan), so catching dead code / clones before
+    // push is worth it. Both carry a glob, so they only fire when a matching file is
+    // staged (a docs-only commit skips them). They scan the whole tree, not just {{ files }}.
+    // Dead code. Scans `.` (all *.py, excluding .venv/build) plus any extensionless
+    // tracked file with a python/uv shebang (PEP 723 CLIs like bin/foo).
+    ["vulture"] {
+        glob = "**/*.py"
+        check = "uvx vulture --min-confidence 80 --exclude '*/.venv/*,.venv,build,dist' . $(git ls-files ':!*.py' | while IFS= read -r f; do head -n1 \"$f\" 2>/dev/null | grep -qE '^#!.*(python|uv run)' && printf '%s\\n' \"$f\"; done)"
+    }
+    // Duplication. jscpd 5.x via npx; config in `.jscpd.json`. `-f` scopes to code formats
+    // (no config equivalent) so docs/yaml aren't flagged. (See SKILL.md › jscpd note.)
+    // Version policy: track latest with a 4-day cooldown (never run a release < 4 days old —
+    // supply-chain seasoning), floored at v5 (the major .jscpd.json targets) so it can't
+    // regress to v4 while v5 is still maturing. Online → resolve the newest version >= 4 days
+    // old (`npx --before`), fall back to `latest` when that lands below the v5 floor, then run
+    // it (the real gate — exit reflects duplication). Offline → run the cached jscpd. No cache
+    // + offline → warn and pass, so a commit is never blocked by an unreachable registry.
+    ["jscpd"] {
+        glob = List("**/*.sh", "**/*.py")
+        check = "cutoff=$(date -u -d '4 days ago' +%F 2>/dev/null || date -u -v-4d +%F); if curl -sf -m 3 https://registry.npmjs.org/ >/dev/null 2>&1; then ver=$(npx --before=$cutoff --yes jscpd --version 2>/dev/null | awk 'END{print $NF}'); case $ver in ''|0.*|1.*|2.*|3.*|4.*) ver=latest;; esac; npx --yes jscpd@$ver . -f python,bash; elif npx --offline jscpd --version >/dev/null 2>&1; then npx --offline jscpd . -f python,bash; else echo 'jscpd unavailable offline; skipping duplication check'; fi"
+    }
+    // Secret scanning (defense-in-depth alongside fnox). hk builtin.
+    ["gitleaks"] = Builtins.gitleaks
+    // Block accidentally-committed large files. hk builtin.
+    ["check-added-large-files"] = Builtins.check_added_large_files
+}
+
+hooks {
+    ["pre-commit"] {
+        fix = true
+        stash = "git"
+        steps = linters
+    }
+    ["fix"] {
+        fix = true
+        steps = linters
+    }
+    // `check` is the full suite CI runs. The audits (vulture, jscpd) now live in `linters`,
+    // so they already run on pre-commit; `check` is just the same set under one name.
+    ["check"] {
+        steps = linters
+    }
+}

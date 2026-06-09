@@ -1,1 +1,13 @@
 .DS_Store
+
+# Python tooling (dev-only; pyproject.toml is dev tooling, not a package)
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+
+# mise machine-local overrides (mise.toml + mise.lock are committed)
+mise.local.toml
+
+# jscpd report output
+report/

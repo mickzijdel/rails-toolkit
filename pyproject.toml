@@ -1,0 +1,31 @@
+# Dev-tooling manifest only (readoc-style). The plugin's scripts/CLIs stay
+# self-contained — Python ones use PEP 723 inline deps and run via `uv run --script`
+# (shebang: #!/usr/bin/env -S uv run --script). This file exists purely so contributors
+# get a reproducible test/lint environment; it declares no runtime dependencies and is
+# never built or installed (package = false). rails-toolkit currently ships one bash
+# script (bin/rails-detect-hook); the test suite exercises it as a subprocess.
+[project]
+name = "rails-toolkit"
+version = "0.0.0"
+description = "Dev tooling for the rails-toolkit Claude Code plugin."
+requires-python = ">=3.12"
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "ruff",
+    "vulture",   # dead-code audit; run via `uv run vulture`
+    # Mirror here any libraries the bundled scripts declare in their PEP 723 blocks,
+    # so the test environment can import/run them.
+]
+
+[tool.uv]
+package = false
+# Dependency cooldown (dev-env standard v6): don't resolve a release until it's been public
+# ≥4 days, so a malicious upload is caught/yanked before it lands here. Rolling duration, so the
+# window moves with today's date. Urgent override: exclude-newer-package = { foo = "0 days" }.
+exclude-newer = "4 days"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

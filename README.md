@@ -23,6 +23,21 @@ gotchas skill, and a Rails-detection session hook.
 This plugin lives in `~/.claude/skills/rails-toolkit/` and auto-loads as
 `rails-toolkit@skills-dir`. Its skills are namespaced `rails-toolkit:<name>`.
 
+## Development
+
+Tooling is pinned with [mise](https://mise.jdx.dev) and pre-commit checks run via
+[hk](https://hk.jdx.dev). Set up and verify:
+
+```bash
+mise trust && mise install   # provision hk, shellcheck, shfmt, uv, node, gitleaks (per mise.lock)
+hk install                   # install the git pre-commit hook
+hk run check                 # lint + audits + gitleaks + large-file guard
+uv run pytest                # exercise bin/rails-detect-hook as a subprocess
+```
+
+The same checks run in CI (`.github/workflows/ci.yml`). Bump the plugin version in
+`.claude-plugin/plugin.json` on every commit (patch for fixes, minor for new skills/tools).
+
 ## License
 
 MIT

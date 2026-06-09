@@ -10,7 +10,7 @@ DIR=$(printf '%s' "$INPUT" | jq -r '.cwd // empty' 2>/dev/null)
 
 # Rails marker: a Gemfile that mentions the rails gem.
 if [ ! -f "$DIR/Gemfile" ] || ! grep -qiE '^\s*gem\s+["'\'']rails["'\'']' "$DIR/Gemfile" 2>/dev/null; then
-  exit 0
+	exit 0
 fi
 
 MSG="This is a Ruby on Rails project. Before writing or changing Rails code, invoke the rails-toolkit:rails-core skill (the project owner's non-negotiable Rails gotchas) at minimum, and pull in the other applicable rails-toolkit:rails-* skills (models, controllers, jobs, turbo, stimulus, testing, security, performance, etc.) for the area you are touching."

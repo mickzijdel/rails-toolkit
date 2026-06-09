@@ -1,0 +1,15 @@
+{
+  "minTokens": 70,
+  "threshold": 0,
+  "reporters": ["ai", "threshold"],
+  "gitignore": true,
+  "ignorePattern": [
+    "**/__pycache__/**",
+    "**/.venv/**",
+    "**/node_modules/**",
+    "**/vendor/**",
+    "**/db/schema.rb",
+    "**/db/structure.sql",
+    "**/app/assets/builds/**"
+  ]
+}
