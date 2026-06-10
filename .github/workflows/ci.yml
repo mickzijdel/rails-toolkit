@@ -57,7 +57,7 @@ jobs:
           fetch-depth: 0 # gitleaks git scans the full commit history
       - uses: jdx/mise-action@v4
       - name: Scan git history for secrets
-        run: mise exec -- gitleaks git --no-banner .
+        run: mise exec -- gitleaks git --redact --no-banner .
 
   # Noisier audits — mirror the hk `check` hook (not run on pre-commit).
   audit:
