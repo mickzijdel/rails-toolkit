@@ -46,15 +46,18 @@ jobs:
       - name: Run tests
         run: uv run pytest --tb=short
 
+  # Run the MIT-licensed gitleaks CLI (via mise, version-pinned in mise.lock) rather than
+  # gitleaks/gitleaks-action: the action requires a paid GITLEAKS_LICENSE on org-owned repos,
+  # while the CLI is free for all repos and is exactly what the local hk pre-commit hook runs.
   gitleaks:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
         with:
-          fetch-depth: 0
-      - uses: gitleaks/gitleaks-action@v3
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # required to scan pull_request events
+          fetch-depth: 0 # gitleaks git scans the full commit history
+      - uses: jdx/mise-action@v4
+      - name: Scan git history for secrets
+        run: mise exec -- gitleaks git --no-banner .
 
   # Noisier audits — mirror the hk `check` hook (not run on pre-commit).
   audit:
