@@ -5,24 +5,12 @@ description: Use when writing background jobs with Solid Queue, including recurr
 
 # Rails Background Jobs
 
-## When to Use
-- Creating background jobs for async work
-- Setting up recurring/scheduled jobs
-- Handling multi-tenant context in jobs
-- Building resumable long-running jobs
-
 ## Pattern 1: Shallow Job Classes
 
-### Problem
-Jobs should not contain business logic directly. Logic scattered across jobs becomes hard to test and maintain.
+The job is just a conduit for async execution; the logic lives in a model method.
 
-### Solution
-Write thin job classes that delegate work to model methods. The job is just a conduit for async execution.
-
-### Example
-
-**Job class** - `app/jobs/webhook/delivery_job.rb`:
 ```ruby
+# app/jobs/webhook/delivery_job.rb
 class Webhook::DeliveryJob < ApplicationJob
   queue_as :webhooks
 
@@ -32,8 +20,8 @@ class Webhook::DeliveryJob < ApplicationJob
 end
 ```
 
-**Model with the logic** - `app/models/webhook/delivery.rb`:
 ```ruby
+# app/models/webhook/delivery.rb
 class Webhook::Delivery < ApplicationRecord
   after_create_commit :deliver_later
 
@@ -55,79 +43,40 @@ class Webhook::Delivery < ApplicationRecord
 end
 ```
 
-More examples:
-- `app/jobs/notify_recipients_job.rb` calls `notifiable.notify_recipients`
-- `app/jobs/push_notification_job.rb` calls `NotificationPusher.new(notification).push`
-- `app/jobs/mention/create_job.rb` calls `record.create_mentions(mentioner:)`
-
 ---
 
 ## Pattern 2: Account Context Serialization
 
-### Problem
-In multi-tenant apps, jobs need access to the current account context that was active when they were enqueued.
-
-### Solution
-FizzyActiveJobExtensions (prepended to ActiveJob::Base) automatically captures `Current.account` when a job is created and restores it when the job runs.
-
-### Example
-
-**The extension** - `config/initializers/active_job.rb`:
-```ruby
-module FizzyActiveJobExtensions
-  extend ActiveSupport::Concern
-
-  prepended do
-    attr_reader :account
-    self.enqueue_after_transaction_commit = true
-  end
-
-  def initialize(...)
-    super
-    @account = Current.account
-  end
-
-  def serialize
-    super.merge({ "account" => @account&.to_gid })
-  end
-
-  def deserialize(job_data)
-    super
-    if _account = job_data.fetch("account", nil)
-      @account = GlobalID::Locator.locate(_account)
-    end
-  end
-
-  def perform_now
-    if account.present?
-      Current.with_account(account) { super }
-    else
-      super
-    end
-  end
-end
-
-ActiveSupport.on_load(:active_job) do
-  prepend FizzyActiveJobExtensions
-end
-```
-
-This means any job automatically has tenant context - no manual passing required.
+In multi-tenant apps, a module prepended to `ActiveJob::Base` captures `Current.account` at enqueue time, serializes it as a GlobalID, and restores it around `perform` — every job gets tenant context with no manual passing. Full implementation: [[rails-multi-tenancy]] Pattern 5.
 
 ---
 
 ## Pattern 3: `*_later` / `*_now` Method Convention
 
-### Problem
-Models need both async (background) and sync versions of operations. Naming should clearly indicate which is which.
+`_later` suffix for methods that enqueue a job; `_now` suffix for the synchronous version when a class has both.
 
-### Solution
-Use `_later` suffix for methods that enqueue jobs. Use `_now` suffix when the same class has both async and sync versions of the same operation.
-
-### Example
-
-**From** `app/models/notification/bundle.rb`:
 ```ruby
+# app/models/account/export.rb
+class Account::Export < ApplicationRecord
+  def build_later
+    ExportAccountDataJob.perform_later(self)
+  end
+
+  def build
+    processing!
+    zipfile = generate_zip
+    file.attach io: File.open(zipfile.path), filename: "export-#{id}.zip"
+    mark_completed
+    ExportMailer.completed(self).deliver_later
+  rescue => e
+    update!(status: :failed)
+    raise
+  end
+end
+```
+
+```ruby
+# Class-level batch enqueueing with perform_all_later
 class Notification::Bundle < ApplicationRecord
   class << self
     def deliver_all
@@ -141,104 +90,49 @@ class Notification::Bundle < ApplicationRecord
       DeliverAllJob.perform_later
     end
   end
-
-  def deliver
-    user.in_time_zone do
-      Current.with_account(user.account) do
-        processing!
-        Notification::BundleMailer.notification(self).deliver if deliverable?
-        delivered!
-      end
-    end
-  end
-
-  def deliver_later
-    DeliverJob.perform_later(self)
-  end
 end
 ```
-
-**From** `app/models/account/export.rb`:
-```ruby
-class Account::Export < ApplicationRecord
-  def build_later
-    ExportAccountDataJob.perform_later(self)
-  end
-
-  def build
-    processing!
-    zipfile = generate_zip
-    file.attach io: File.open(zipfile.path), filename: "fizzy-export-#{id}.zip"
-    mark_completed
-    ExportMailer.completed(self).deliver_later
-  rescue => e
-    update!(status: :failed)
-    raise
-  end
-end
-```
-
-The pattern from STYLE.md explicitly shows this with `relay_later` / `relay_now` naming for Event relaying.
 
 ---
 
 ## Pattern 4: Recurring Jobs
 
-### Problem
-Some tasks need to run on a schedule (cleanup, notifications, metrics).
+Configure scheduled tasks in `config/recurring.yml` — `command:` for inline Ruby, `class:` for a job class.
 
-### Solution
-Configure recurring jobs in `config/recurring.yml`. Jobs can be defined as class names or Ruby commands.
-
-### Example
-
-**config/recurring.yml**:
 ```yaml
 production: &production
-  # Application functionality
   deliver_bundled_notifications:
     command: "Notification::Bundle.deliver_all_later"
     schedule: every 30 minutes
-
-  # Cleanup tasks
-  auto_postpone_all_due:
-    command: "Card.auto_postpone_all_due"
-    schedule: every hour at minute 50
 
   delete_unused_tags:
     class: DeleteUnusedTagsJob
     schedule: every day at 04:02
 
-  cleanup_webhook_deliveries:
-    command: "Webhook::Delivery.cleanup"
-    schedule: every 4 hours at minute 51
-
   cleanup_magic_links:
     command: "MagicLink.cleanup"
     schedule: every 4 hours
 
-  # Solid Queue maintenance
+  # Solid Queue maintenance — both tables need periodic clearing
   clear_solid_queue_finished_jobs:
     command: "SolidQueue::Job.clear_finished_in_batches(sleep_between_batches: 0.3)"
     schedule: every hour at minute 12
+  clear_solid_queue_recurring_executions:
+    command: "SolidQueue::RecurringExecution.clear_in_batches"
+    schedule: every hour at minute 52
 ```
-
-Use `command:` for simple class method calls, `class:` for job classes.
 
 ---
 
 ## Pattern 5: SLO-Named Queues
 
-### Problem
 Domain-named queues (`imports`, `exports`, `webhooks`, `backend`) multiply over time and answer none of the operational questions: how full is too full? When do we scale? When do we page someone?
 
-### Solution
 Name queues after the latency promise they make — the maximum acceptable time a job sits in the queue. Every operational decision then falls out of comparing queue latency against the SLO in the queue's name. (Pattern from Nate Berkopec's *Sidekiq in Practice*, adopted at Gusto among others.)
 
-### Example
-
-**Queue assignments in jobs** — pick the queue by asking "how stale can this work be?":
 ```ruby
+# Pick the queue by asking "how stale can this work be?"
+
 # User is waiting on this (e.g. notification fan-out)
 class NotifyRecipientsJob < ApplicationJob
   queue_as :within_30_seconds
@@ -255,8 +149,8 @@ class DeleteUnusedTagsJob < ApplicationJob
 end
 ```
 
-**Queue worker configuration** - `config/queue.yml`:
 ```yaml
+# config/queue.yml
 default: &default
   dispatchers:
     - polling_interval: 1
@@ -272,26 +166,17 @@ default: &default
       polling_interval: 1
 ```
 
-Key points:
+**Key Points:**
 - Ideally each worker pool listens to one queue (or one SLO tier), so a queue's latency is a true signal — not masked by workers borrowed from elsewhere.
-- Autoscaling and alerting become trivial: scale when queue latency approaches the SLO in its name; page when it exceeds it. No tribal knowledge required.
-- Developers choose queues correctly without asking anyone: the name says what it promises.
-- A handful of tiers is enough (`within_30_seconds`, `within_5_minutes`, `within_1_hour`). Resist re-introducing per-domain queues; that's how queue sprawl starts.
-- (Examples in other patterns here show domain names like `:backend`/`:webhooks` from their source app — prefer SLO names in new code.)
+- Autoscaling and alerting become trivial: scale when queue latency approaches the SLO in its name; page when it exceeds it.
+- A handful of tiers is enough. Resist re-introducing per-domain queues; that's how queue sprawl starts. (Examples elsewhere in this skill show domain names like `:webhooks` from their source app — prefer SLO names in new code.)
 
 ---
 
 ## Pattern 6: Continuable Jobs
 
-### Problem
-Long-running jobs that iterate over large datasets can timeout or fail midway, losing all progress.
+Long-running iterative jobs can timeout or fail midway. `ActiveJob::Continuable` gives cursor-based checkpointing so an interrupted job resumes where it left off.
 
-### Solution
-Use `ActiveJob::Continuable` to create resumable jobs with cursor-based checkpointing.
-
-### Example
-
-**From** `app/jobs/event/webhook_dispatch_job.rb`:
 ```ruby
 require "active_job/continuable"
 
@@ -311,26 +196,16 @@ class Event::WebhookDispatchJob < ApplicationJob
 end
 ```
 
-Key points:
-- `step :name` defines a resumable step
-- `step.cursor` returns the last saved position (or nil on first run)
-- `step.advance! from: id` saves progress after each iteration
-- If the job is interrupted, it resumes from the last checkpoint
+`step :name` defines a resumable step; `step.cursor` is the last saved position (nil on first run); `step.advance! from:` saves progress.
 
 ---
 
 ## Pattern 7: Error Handling Concerns
 
-### Problem
-Common error handling patterns (retries, discards) are repeated across jobs dealing with similar external services.
+Extract shared retry/rescue logic for jobs hitting the same external service:
 
-### Solution
-Extract error handling into reusable concerns that jobs can include.
-
-### Example
-
-**From** `app/jobs/concerns/smtp_delivery_error_handling.rb`:
 ```ruby
+# app/jobs/concerns/smtp_delivery_error_handling.rb
 module SmtpDeliveryErrorHandling
   extend ActiveSupport::Concern
 
@@ -346,31 +221,26 @@ module SmtpDeliveryErrorHandling
     rescue_from Net::SMTPSyntaxError do |error|
       case error.message
       when /\A501 5\.1\.3/
-        Sentry.capture_exception error, level: :info if Fizzy.saas?
+        Sentry.capture_exception error, level: :info
       else
         raise
       end
     end
 
-    # SMTP 5xx fatal errors - log specific ones, raise others
+    # SMTP 5xx fatal errors - log specific ignorable ones, raise others
     rescue_from Net::SMTPFatalError do |error|
       case error.message
       when /\A550 5\.1\.1/, /\A552 5\.6\.0/, /\A555 5\.5\.4/
-        Sentry.capture_exception error, level: :info if Fizzy.saas?
+        Sentry.capture_exception error, level: :info
       else
         raise
       end
     end
   end
 end
-```
 
-**Usage in a job**:
-```ruby
 class Notification::Bundle::DeliverJob < ApplicationJob
   include SmtpDeliveryErrorHandling
-
-  queue_as :backend
 
   def perform(bundle)
     bundle.deliver
@@ -382,18 +252,10 @@ end
 
 ## Pattern 8: Concurrency Limits
 
-### Problem
-Some jobs should not run concurrently for the same resource (e.g., storage calculations).
+Solid Queue's `limits_concurrency` prevents duplicate concurrent execution for the same resource; the `key` lambda defines the scope.
 
-### Solution
-Use Solid Queue's `limits_concurrency` to prevent duplicate concurrent execution.
-
-### Example
-
-**From** `app/jobs/storage/materialize_job.rb`:
 ```ruby
 class Storage::MaterializeJob < ApplicationJob
-  queue_as :backend
   limits_concurrency to: 1, key: ->(owner) { owner }
 
   discard_on ActiveJob::DeserializationError
@@ -404,36 +266,15 @@ class Storage::MaterializeJob < ApplicationJob
 end
 ```
 
-**From** `app/jobs/storage/reconcile_job.rb`:
-```ruby
-class Storage::ReconcileJob < ApplicationJob
-  class ReconcileAborted < StandardError; end
-
-  queue_as :backend
-  limits_concurrency to: 1, key: ->(owner) { owner }
-
-  discard_on ActiveJob::DeserializationError
-  retry_on ReconcileAborted, wait: 1.minute, attempts: 3
-
-  def perform(owner)
-    raise ReconcileAborted, "Could not get stable snapshot" unless owner.reconcile_storage
-  end
-end
-```
-
-The `key` lambda determines the concurrency scope - jobs with the same key won't run simultaneously.
+Pair with `retry_on SomeAbortError, wait: 1.minute, attempts: 3` for jobs that should retry when they can't get a stable snapshot.
 
 ---
 
 ## Pattern 9: Generate Large Files in Jobs, Never in Controllers
 
-### Problem
 A controller that builds a multi-megabyte CSV/zip/export and ships it with `send_data` hurts twice: the whole file is assembled in web-process memory (permanent RSS bloat — Ruby rarely returns freed memory to the OS), and the Puma thread is held for the entire client download. A few slow downloaders can starve the app of threads.
 
-### Solution
-The controller only enqueues a job and responds immediately ("your file is being prepared"). The job generates the file and attaches it via Active Storage (or uploads to S3 directly); the user downloads from storage, not from the app.
-
-### Example
+The controller only enqueues a job and responds immediately; the job generates the file and attaches it via Active Storage; the user downloads from storage, not from the app.
 
 ```ruby
 # app/controllers/exports_controller.rb
@@ -452,9 +293,9 @@ end
 
 The `Account::Export` model in Pattern 3 shows the job side: `build_later` enqueues, `build` generates the zip, attaches it, and emails a link.
 
-Key points:
+**Key Points:**
 - `send_data` of generated content is the smell; `send_file`/`redirect_to` for storage-served blobs is the cure.
-- This applies to anything generated per-request and larger than a page of HTML: CSV admin exports, PDFs, zips.
+- Applies to anything generated per-request and larger than a page of HTML: CSV admin exports, PDFs, zips.
 - Bonus: generation can be retried, throttled (Pattern 8), and survives deploys.
 
 ---
@@ -464,7 +305,7 @@ Key points:
 | Pattern | When to Use |
 |---------|-------------|
 | Shallow Jobs | Always - keep logic in models |
-| Account Context | Automatic via FizzyActiveJobExtensions |
+| Account Context | Automatic — see [[rails-multi-tenancy]] |
 | `*_later`/`*_now` | When model needs async operation |
 | Recurring Jobs | Scheduled tasks in config/recurring.yml |
 | SLO-Named Queues | Name queues by latency promise (`within_5_minutes`) |

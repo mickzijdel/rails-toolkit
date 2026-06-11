@@ -5,27 +5,12 @@ description: Use when implementing authentication, authorization, or security fe
 
 # Rails Security Patterns
 
-## When to Use
-- Implementing user authentication
-- Adding authorization checks
-- Securing sensitive endpoints
-- Implementing rate limiting
-- Multi-tenant data isolation
-
----
-
 ## 1. Passwordless Authentication (Magic Links)
 
-### Problem
-Users need to authenticate without managing passwords. Password-based auth introduces security risks (weak passwords, password reuse, credential stuffing) and UX friction.
+Password-based auth brings weak passwords, reuse, and credential stuffing. Magic links instead: user enters email, receives a short-lived code, enters it to authenticate.
 
-### Solution
-Implement magic link authentication: users enter their email, receive a time-limited code via email, and enter that code to authenticate.
-
-### Example
-
-**Magic Link Model** (`app/models/magic_link.rb`):
 ```ruby
+# app/models/magic_link.rb
 class MagicLink < ApplicationRecord
   CODE_LENGTH = 6
   EXPIRATION_TIME = 15.minutes
@@ -53,7 +38,7 @@ class MagicLink < ApplicationRecord
   end
 
   def consume
-    destroy
+    destroy   # codes are single-use
     self
   end
 
@@ -71,19 +56,15 @@ class MagicLink < ApplicationRecord
 end
 ```
 
-**Sending Magic Links** (`app/models/identity.rb`):
 ```ruby
+# app/models/identity.rb
 def send_magic_link(**attributes)
-  attributes[:purpose] = attributes.delete(:for) if attributes.key?(:for)
-
   magic_links.create!(attributes).tap do |magic_link|
     MagicLinkMailer.sign_in_instructions(magic_link).deliver_later
   end
 end
-```
 
-**Consuming Magic Links** (`app/controllers/sessions/magic_links_controller.rb`):
-```ruby
+# app/controllers/sessions/magic_links_controller.rb
 def create
   if magic_link = MagicLink.consume(code)
     authenticate magic_link
@@ -105,39 +86,18 @@ private
   end
 ```
 
-Key security features:
-- Short-lived codes (15 minutes)
-- Codes are consumed (destroyed) on use
-- Uses `secure_compare` to prevent timing attacks
-- Code sanitization handles user typos (O->0, I->1, L->1)
-
-**Source files**:
-- `app/models/magic_link.rb`
-- `app/models/magic_link/code.rb`
-- `app/controllers/sessions/magic_links_controller.rb`
-- `app/controllers/concerns/authentication/via_magic_link.rb`
+**Key Points:**
+- `secure_compare` prevents timing attacks on the email comparison.
+- A `Code.sanitize` step handles common user typos (O→0, I/L→1).
 
 ---
 
 ## 2. Session Management
 
-### Problem
-Sessions must be secure, persistent, and easily revocable. Cookie-based sessions should be tamper-proof.
+Store session records in the database, reference them via signed cookies — sessions become trackable, revocable, and auditable.
 
-### Solution
-Store session records in the database, reference them via signed cookies. This allows tracking active sessions, revoking access, and auditing login history.
-
-### Example
-
-**Session Model** (`app/models/session.rb`):
 ```ruby
-class Session < ApplicationRecord
-  belongs_to :identity
-end
-```
-
-**Starting Sessions** (`app/controllers/concerns/authentication.rb`):
-```ruby
+# app/controllers/concerns/authentication.rb
 def start_new_session_for(identity)
   identity.sessions.create!(
     user_agent: request.user_agent,
@@ -150,15 +110,12 @@ end
 def set_current_session(session)
   Current.session = session
   cookies.signed.permanent[:session_token] = {
-    value: session.signed_id,
-    httponly: true,
-    same_site: :lax
+    value: session.signed_id,    # tamper-proof token
+    httponly: true,              # no JavaScript access
+    same_site: :lax              # CSRF protection
   }
 end
-```
 
-**Resuming Sessions**:
-```ruby
 def resume_session
   if session = find_session_by_cookie
     set_current_session session
@@ -168,38 +125,21 @@ end
 def find_session_by_cookie
   Session.find_signed(cookies.signed[:session_token])
 end
-```
 
-**Terminating Sessions**:
-```ruby
 def terminate_session
   Current.session.destroy
   cookies.delete(:session_token)
 end
 ```
 
-Key security features:
-- `signed_id` creates tamper-proof tokens
-- `httponly: true` prevents JavaScript access
-- `same_site: :lax` provides CSRF protection
-- Sessions stored in DB allow revocation
-
-**Source file**: `app/controllers/concerns/authentication.rb`
-
 ---
 
 ## 3. Authorization Concern (Role-Based Access)
 
-### Problem
-Different users need different access levels. Admins can manage settings, staff can access internal tools, regular members have limited access.
-
-### Solution
 Define role checks as concern methods, apply them via `before_action` filters.
 
-### Example
-
-**User Roles** (`app/models/user/role.rb`):
 ```ruby
+# app/models/user/role.rb
 module User::Role
   extend ActiveSupport::Concern
 
@@ -208,16 +148,11 @@ module User::Role
 
     scope :owner, -> { where(active: true, role: :owner) }
     scope :admin, -> { where(active: true, role: %i[ owner admin ]) }
-    scope :member, -> { where(active: true, role: :member) }
     scope :active, -> { where(active: true, role: %i[ owner admin member ]) }
 
     def admin?
       super || owner?  # owners are also admins
     end
-  end
-
-  def can_change?(other)
-    (admin? && !other.owner?) || other == self
   end
 
   def can_administer?(other)
@@ -226,8 +161,8 @@ module User::Role
 end
 ```
 
-**Authorization Concern** (`app/controllers/concerns/authorization.rb`):
 ```ruby
+# app/controllers/concerns/authorization.rb
 module Authorization
   extend ActiveSupport::Concern
 
@@ -261,45 +196,25 @@ module Authorization
 end
 ```
 
-**Usage in Controllers**:
 ```ruby
-# Admin-only endpoints
+# Usage
 class WebhooksController < ApplicationController
   before_action :ensure_admin
-  # ...
 end
 
-# Staff-only (internal) endpoints
-class AdminController < ApplicationController
-  disallow_account_scope
-  before_action :ensure_staff
-end
-
-# Mixed access
 class Account::SettingsController < ApplicationController
   before_action :ensure_admin, only: :update
 end
 ```
 
-**Source files**:
-- `app/controllers/concerns/authorization.rb`
-- `app/models/user/role.rb`
-- `app/controllers/webhooks_controller.rb`
-
 ---
 
 ## 4. Bearer Token API Access
 
-### Problem
-API clients need stateless authentication without cookies or sessions. Tokens should have configurable permissions.
+Access tokens with read/write permission levels; API requests authenticate via the Authorization header as a fallback to the session.
 
-### Solution
-Create access tokens with read/write permissions. Authenticate API requests via Bearer tokens in the Authorization header.
-
-### Example
-
-**Access Token Model** (`app/models/identity/access_token.rb`):
 ```ruby
+# app/models/identity/access_token.rb
 class Identity::AccessToken < ApplicationRecord
   belongs_to :identity
 
@@ -312,17 +227,8 @@ class Identity::AccessToken < ApplicationRecord
 end
 ```
 
-**Finding Identity by Token** (`app/models/identity.rb`):
 ```ruby
-def self.find_by_permissable_access_token(token, method:)
-  if (access_token = AccessToken.find_by(token: token)) && access_token.allows?(method)
-    access_token.identity
-  end
-end
-```
-
-**Authentication Fallback** (`app/controllers/concerns/authentication.rb`):
-```ruby
+# app/controllers/concerns/authentication.rb
 def require_authentication
   resume_session || authenticate_by_bearer_token || request_authentication
 end
@@ -338,238 +244,75 @@ def authenticate_by_bearer_token
 end
 ```
 
-**Token Management Controller** (`app/controllers/my/access_tokens_controller.rb`):
 ```ruby
+# Show the token only once: a 10-second expiring signed id for the redirect
 class My::AccessTokensController < ApplicationController
   def create
-    access_token = my_access_tokens.create!(access_token_params)
-    expiring_id = verifier.generate access_token.id, expires_in: 10.seconds
+    access_token = Current.identity.access_tokens.create!(access_token_params)
+    expiring_id = Rails.application.message_verifier(:access_tokens)
+      .generate(access_token.id, expires_in: 10.seconds)
 
     redirect_to my_access_token_path(expiring_id)
   end
-
-  private
-    def my_access_tokens
-      Current.identity.access_tokens
-    end
-
-    def verifier
-      Rails.application.message_verifier(:access_tokens)
-    end
 end
 ```
-
-Key features:
-- Read-only tokens for safe operations
-- Write tokens required for mutations
-- Token only displayed once (10-second expiry on view)
-- Uses `has_secure_token` for cryptographic tokens
-
-**Source files**:
-- `app/models/identity/access_token.rb`
-- `app/controllers/my/access_tokens_controller.rb`
-- `app/controllers/concerns/authentication.rb`
 
 ---
 
 ## 5. Rate Limiting
 
-### Problem
-Sensitive endpoints (login, signup, magic link verification) are targets for brute-force attacks. Need to limit request frequency.
+Rails 8's built-in `rate_limit` on brute-forceable endpoints, with a handler for exceeded limits:
 
-### Solution
-Use Rails 8's built-in `rate_limit` helper with custom handlers for exceeded limits.
-
-### Example
-
-**Sessions Controller** (`app/controllers/sessions_controller.rb`):
 ```ruby
 class SessionsController < ApplicationController
   rate_limit to: 10, within: 3.minutes, only: :create, with: :rate_limit_exceeded
 
   private
     def rate_limit_exceeded
-      rate_limit_exceeded_message = "Try again later."
-
       respond_to do |format|
-        format.html { redirect_to new_session_path, alert: rate_limit_exceeded_message }
-        format.json { render json: { message: rate_limit_exceeded_message }, status: :too_many_requests }
+        format.html { redirect_to new_session_path, alert: "Try again later." }
+        format.json { render json: { message: "Try again later." }, status: :too_many_requests }
       end
     end
 end
-```
 
-**Magic Links Controller** (`app/controllers/sessions/magic_links_controller.rb`):
-```ruby
-class Sessions::MagicLinksController < ApplicationController
-  rate_limit to: 10, within: 15.minutes, only: :create, with: :rate_limit_exceeded
-
-  private
-    def rate_limit_exceeded
-      rate_limit_exceeded_message = "Try again in 15 minutes."
-      respond_to do |format|
-        format.html { redirect_to session_magic_link_path, alert: rate_limit_exceeded_message }
-        format.json { render json: { message: rate_limit_exceeded_message }, status: :too_many_requests }
-      end
-    end
-end
-```
-
-**Inline Handler** (`app/controllers/signups_controller.rb`):
-```ruby
+# Inline handler variant
 class SignupsController < ApplicationController
   rate_limit to: 10, within: 3.minutes, only: :create,
     with: -> { redirect_to new_signup_path, alert: "Try again later." }
 end
 ```
 
-**Email Change Rate Limiting** (`app/controllers/users/email_addresses_controller.rb`):
-```ruby
-class Users::EmailAddressesController < ApplicationController
-  rate_limit to: 5, within: 1.hour, only: :create
-end
-```
-
-Different endpoints use different limits:
-- Login/signup: 10 per 3 minutes
-- Magic link verification: 10 per 15 minutes
-- Email changes: 5 per hour
-
-**Source files**:
-- `app/controllers/sessions_controller.rb`
-- `app/controllers/sessions/magic_links_controller.rb`
-- `app/controllers/signups_controller.rb`
+Scale limits to the endpoint: login/signup 10 per 3 minutes, magic-link verification 10 per 15 minutes, email changes 5 per hour.
 
 ---
 
 ## 6. Account Scoping (Multi-Tenant Security)
 
-### Problem
-In multi-tenant applications, users must only access data belonging to their account. Data leakage between tenants is a critical security risk.
+Tenant isolation is the highest-stakes authorization boundary. The mechanism — account-slug middleware, `Current` attributes, `require_account` / `disallow_account_scope` — lives in [[rails-multi-tenancy]]. The security properties to preserve:
 
-### Solution
-Extract account ID from URL path via middleware, set `Current.account`, and require account context for most actions.
-
-### Example
-
-**Account Slug Middleware** (`config/initializers/tenanting/account_slug.rb`):
-```ruby
-module AccountSlug
-  PATTERN = /(\d{7,})/
-  PATH_INFO_MATCH = /\A(\/#{AccountSlug::PATTERN})/
-
-  class Extractor
-    def initialize(app)
-      @app = app
-    end
-
-    def call(env)
-      request = ActionDispatch::Request.new(env)
-
-      if request.path_info =~ PATH_INFO_MATCH
-        # Move prefix from PATH_INFO to SCRIPT_NAME
-        request.engine_script_name = request.script_name = $1
-        request.path_info = $'.empty? ? "/" : $'
-        env["fizzy.external_account_id"] = AccountSlug.decode($2)
-      end
-
-      if env["fizzy.external_account_id"]
-        account = Account.find_by(external_account_id: env["fizzy.external_account_id"])
-        Current.with_account(account) do
-          @app.call env
-        end
-      else
-        Current.without_account do
-          @app.call env
-        end
-      end
-    end
-  end
-end
-
-Rails.application.config.middleware.insert_after Rack::TempfileReaper, AccountSlug::Extractor
-```
-
-**Require Account** (`app/controllers/concerns/authentication.rb`):
-```ruby
-included do
-  before_action :require_account  # Must happen first
-  before_action :require_authentication
-end
-
-private
-  def require_account
-    unless Current.account.present?
-      redirect_to main_app.session_menu_path(script_name: nil)
-    end
-  end
-```
-
-**Disallow Account Scope** (for global routes):
-```ruby
-class_methods do
-  def disallow_account_scope(**options)
-    skip_before_action :require_account, **options
-    before_action :redirect_tenanted_request, **options
-  end
-end
-```
-
-**Current Attributes** (`app/models/current.rb`):
-```ruby
-class Current < ActiveSupport::CurrentAttributes
-  attribute :session, :user, :identity, :account
-
-  def session=(value)
-    super(value)
-    self.identity = session.identity if value.present?
-  end
-
-  def identity=(identity)
-    super(identity)
-    self.user = identity.users.find_by(account: account) if identity.present?
-  end
-
-  def with_account(value, &)
-    with(account: value, &)
-  end
-end
-```
-
-Key security features:
-- Account extracted from URL path, not user input
-- `Current.account` scoped to request lifecycle
-- `Current.user` automatically resolved from identity + account
-- Routes without account scope redirect appropriately
-
-**Source files**:
-- `config/initializers/tenanting/account_slug.rb`
-- `app/controllers/concerns/authentication.rb`
-- `app/models/current.rb`
+- Account is extracted from the URL path by middleware, never from user input.
+- `Current.account` is scoped to the request lifecycle; `Current.user` is resolved from identity *and* account, so an identity can never act in an account it has no user in.
+- Every tenant-scoped query goes through `Current.account` / the user's accessible scopes ([[rails-controllers]] Pattern 4) — `Model.find(params[:id])` is a cross-tenant leak.
+- Routes without account scope must explicitly opt out (`disallow_account_scope`) and redirect tenanted requests away.
 
 ---
 
 ## 7. CSRF Protection (Request Forgery Protection)
 
-### Problem
-Cross-Site Request Forgery (CSRF) attacks trick authenticated users into submitting malicious requests. Traditional CSRF tokens can be cumbersome with modern JavaScript frameworks.
+Modern browsers send the `Sec-Fetch-Site` header; verifying it replaces token plumbing that fights page caching (`csrf_meta_tags` in cached layouts, token-refresh JavaScript, "token dispenser" endpoints).
 
-### Solution
-Use the `Sec-Fetch-Site` header (available in modern browsers) for origin verification, falling back to standard CSRF for older browsers.
-
-**On Rails 8.2+, use the built-in strategy instead of the custom concern below:**
+**On Rails 8.2+, use the built-in strategy:**
 ```ruby
 # config/application.rb
 config.action_controller.forgery_protection_strategy = :header_or_legacy_token
 ```
-This verifies `Sec-Fetch-Site` and falls back to the classic token for browsers that don't send it. Browser support floor: Chrome 76+ (2019), Edge 79+ (2020), Firefox 90+ (2021), Safari 16.4+ (2023). Header-based CSRF also removes the need for token plumbing that fights page caching — `csrf_meta_tags` in cached layouts, token-refresh JavaScript, and "token dispenser" endpoints can all go.
+This verifies `Sec-Fetch-Site` and falls back to the classic token for browsers that don't send it. Browser support floor: Chrome 76+ (2019), Edge 79+ (2020), Firefox 90+ (2021), Safari 16.4+ (2023).
 
-On older Rails, implement it yourself:
+**On older Rails, implement it yourself:**
 
-### Example
-
-**Custom Forgery Protection** (`app/controllers/concerns/request_forgery_protection.rb`):
 ```ruby
+# app/controllers/concerns/request_forgery_protection.rb
 module RequestForgeryProtection
   extend ActiveSupport::Concern
 
@@ -596,7 +339,7 @@ module RequestForgeryProtection
     end
 
     def api_request?
-      request.format.json?
+      request.format.json?   # JSON without the header uses bearer token auth
     end
 
     def sec_fetch_site_value
@@ -605,38 +348,7 @@ module RequestForgeryProtection
 end
 ```
 
-**Including in Application Controller** (`app/controllers/application_controller.rb`):
-```ruby
-class ApplicationController < ActionController::Base
-  include Authentication
-  include Authorization
-  include RequestForgeryProtection
-  # ...
-end
-```
-
-**Skipping for PWA** (`app/controllers/pwa_controller.rb`):
-```ruby
-class PwaController < ApplicationController
-  disallow_account_scope
-  skip_forgery_protection
-
-  def service_worker
-  end
-end
-```
-
-Key features:
-- Modern browsers send `Sec-Fetch-Site` header automatically
-- Only "same-origin" and "same-site" requests are allowed
-- API requests (JSON) without the header are allowed (use bearer token auth)
-- Adds `Vary: Sec-Fetch-Site` for proper caching
-- Skip only for truly public endpoints (PWA service worker)
-
-**Source files**:
-- `app/controllers/concerns/request_forgery_protection.rb`
-- `app/controllers/application_controller.rb`
-- `app/controllers/pwa_controller.rb`
+Skip forgery protection only for truly public endpoints (e.g. the PWA service worker controller).
 
 ---
 

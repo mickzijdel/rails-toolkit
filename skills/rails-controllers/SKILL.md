@@ -5,26 +5,10 @@ description: Use when writing thin controllers with concerns, resource-oriented 
 
 # Rails Controller Patterns
 
-## When to Use
-- Creating new controllers
-- Organizing controller logic with concerns
-- Designing RESTful resources
-- Adding caching with ETags
-- Handling multiple response formats
-
----
-
 ## Pattern 1: Thin ApplicationController with Concerns
 
-### Problem
-ApplicationController becomes bloated with authentication, authorization, request handling, and cross-cutting concerns.
+The base controller is just a composition of concerns plus a few global settings. All logic lives in the included modules.
 
-### Solution
-Keep ApplicationController minimal by extracting all behavior into focused concerns. Each concern handles one responsibility.
-
-### Example
-
-**From** `app/controllers/application_controller.rb`:
 ```ruby
 class ApplicationController < ActionController::Base
   include Authentication
@@ -33,7 +17,6 @@ class ApplicationController < ActionController::Base
   include CurrentRequest, CurrentTimezone, SetPlatform
   include RequestForgeryProtection
   include TurboFlash, ViewTransitions
-  include RoutingHeaders
 
   etag { "v1" }
   stale_when_importmap_changes
@@ -41,22 +24,14 @@ class ApplicationController < ActionController::Base
 end
 ```
 
-The base controller is just a composition of concerns plus a few global settings. All logic lives in the included modules.
-
 ---
 
 ## Pattern 2: Resource Scoping Concerns
 
-### Problem
-Multiple controllers need to load the same parent resource and perform similar setup. Duplicating `before_action :set_card` leads to inconsistency.
+When multiple controllers load the same parent resource, create a `*Scoped` concern that handles the loading and provides shared helpers:
 
-### Solution
-Create `*Scoped` concerns that handle resource loading and provide shared helper methods for controllers working with that resource.
-
-### Example
-
-**From** `app/controllers/concerns/card_scoped.rb`:
 ```ruby
+# app/controllers/concerns/card_scoped.rb
 module CardScoped
   extend ActiveSupport::Concern
 
@@ -81,59 +56,14 @@ module CardScoped
         locals: { card: @card.reload }
       )
     end
-
-    def capture_card_location
-      @source_column = @card.column
-      @was_in_stream = @card.awaiting_triage?
-    end
 end
 ```
 
-**From** `app/controllers/concerns/board_scoped.rb`:
-```ruby
-module BoardScoped
-  extend ActiveSupport::Concern
-
-  included do
-    before_action :set_board
-  end
-
-  private
-    def set_board
-      @board = Current.user.boards.find(params[:board_id])
-    end
-
-    def ensure_permission_to_admin_board
-      unless Current.user.can_administer_board?(@board)
-        head :forbidden
-      end
-    end
-end
-```
-
-**From** `app/controllers/concerns/column_scoped.rb`:
-```ruby
-module ColumnScoped
-  extend ActiveSupport::Concern
-
-  included do
-    before_action :set_column
-  end
-
-  private
-    def set_column
-      @column = Current.user.accessible_columns.find(params[:column_id])
-    end
-end
-```
-
-**Usage in a controller** - `app/controllers/cards/comments_controller.rb`:
 ```ruby
 class Cards::CommentsController < ApplicationController
-  include CardScoped
+  include CardScoped   # sets @card and @board via before_action
 
   before_action :set_comment, only: %i[ show edit update destroy ]
-  # CardScoped already sets @card and @board via before_action
 end
 ```
 
@@ -141,24 +71,13 @@ end
 
 ## Pattern 3: Resource-Oriented Design (Non-CRUD as Nested Resources)
 
-### Problem
-Actions like "close", "reopen", "watch", "gild" don't map to standard CRUD verbs. Adding custom routes creates inconsistent APIs.
+Actions like "close", "reopen", "watch" don't map to CRUD verbs. Don't add custom routes — model the state change as a singular resource nested under the parent: create = turn on, destroy = turn off.
 
-### Solution
-Model state changes as separate singular resources nested under the parent. Create = turn on, Destroy = turn off.
-
-### Example
-
-**Routes** - `config/routes.rb`:
 ```ruby
 # Bad: custom actions
 resources :cards do
   post :close
   post :reopen
-  post :watch
-  post :unwatch
-  post :gild
-  post :ungild
 end
 
 # Good: singular nested resources
@@ -168,22 +87,17 @@ resources :cards do
     resource :goldness       # POST = gild, DELETE = ungild
     resource :watch          # POST = watch, DELETE = unwatch
     resource :pin            # POST = pin, DELETE = unpin
-    resource :not_now        # POST = postpone
-    resource :triage         # POST = return to triage
     resource :publish        # POST = publish
   end
 end
 ```
 
-**Controller** - `app/controllers/cards/closures_controller.rb`:
 ```ruby
 class Cards::ClosuresController < ApplicationController
   include CardScoped
 
   def create
-    capture_card_location
     @card.close
-    refresh_stream_if_needed
 
     respond_to do |format|
       format.turbo_stream
@@ -193,61 +107,6 @@ class Cards::ClosuresController < ApplicationController
 
   def destroy
     @card.reopen
-    refresh_stream_after_reopen
-
-    respond_to do |format|
-      format.turbo_stream
-      format.json { head :no_content }
-    end
-  end
-end
-```
-
-**Controller** - `app/controllers/cards/goldnesses_controller.rb`:
-```ruby
-class Cards::GoldnessesController < ApplicationController
-  include CardScoped
-
-  def create
-    @card.gild
-
-    respond_to do |format|
-      format.turbo_stream { render_card_replacement }
-      format.json { head :no_content }
-    end
-  end
-
-  def destroy
-    @card.ungild
-
-    respond_to do |format|
-      format.turbo_stream { render_card_replacement }
-      format.json { head :no_content }
-    end
-  end
-end
-```
-
-**Controller** - `app/controllers/cards/watches_controller.rb`:
-```ruby
-class Cards::WatchesController < ApplicationController
-  include CardScoped
-
-  def show
-    fresh_when etag: @card.watch_for(Current.user) || "none"
-  end
-
-  def create
-    @card.watch_by Current.user
-
-    respond_to do |format|
-      format.turbo_stream
-      format.json { head :no_content }
-    end
-  end
-
-  def destroy
-    @card.unwatch_by Current.user
 
     respond_to do |format|
       format.turbo_stream
@@ -261,57 +120,17 @@ end
 
 ## Pattern 4: Scoped Resource Loading with Authorization
 
-### Problem
-Loading resources without considering user access creates security holes. Raw `Card.find(params[:id])` bypasses access control.
+Raw `Card.find(params[:id])` bypasses access control. Always load resources through scoped associations that respect user permissions:
 
-### Solution
-Always load resources through scoped associations that respect user permissions: `Current.user.accessible_cards`, `Current.user.boards`, etc.
-
-### Example
-
-**From** `app/controllers/cards_controller.rb`:
 ```ruby
-class CardsController < ApplicationController
-  before_action :set_card, only: %i[ show edit update destroy ]
-
-  private
-    def set_card
-      # Uses accessible_cards scope which respects board access permissions
-      @card = Current.user.accessible_cards.find_by!(number: params[:id])
-    end
+def set_card
+  # accessible_cards respects board access permissions
+  @card = Current.user.accessible_cards.find_by!(number: params[:id])
 end
-```
 
-**From** `app/controllers/boards_controller.rb`:
-```ruby
-class BoardsController < ApplicationController
-  before_action :set_board, except: %i[ index new create ]
-
-  private
-    def set_board
-      # Only returns boards the user has access to
-      @board = Current.user.boards.find params[:id]
-    end
-end
-```
-
-**From** `app/controllers/users_controller.rb`:
-```ruby
-class UsersController < ApplicationController
-  before_action :set_user, except: %i[ index ]
-
-  private
-    def set_user
-      # Scoped to current account and active users only
-      @user = Current.account.users.active.find(params[:id])
-    end
-end
-```
-
-**From** `app/controllers/concerns/column_scoped.rb`:
-```ruby
-def set_column
-  @column = Current.user.accessible_columns.find(params[:column_id])
+def set_user
+  # scoped to current account and active users only
+  @user = Current.account.users.active.find(params[:id])
 end
 ```
 
@@ -319,15 +138,8 @@ end
 
 ## Pattern 5: Permission Checks with before_action
 
-### Problem
-Authorization logic scattered throughout controller actions is error-prone and hard to audit.
+Centralize authorization in `before_action` filters named `ensure_permission_to_*` that `head :forbidden` when denied:
 
-### Solution
-Use `before_action` with `ensure_permission_to_*` methods that call `head :forbidden` when access is denied.
-
-### Example
-
-**From** `app/controllers/cards_controller.rb`:
 ```ruby
 class CardsController < ApplicationController
   before_action :set_card, only: %i[ show edit update destroy ]
@@ -340,151 +152,29 @@ class CardsController < ApplicationController
 end
 ```
 
-**From** `app/controllers/boards_controller.rb`:
-```ruby
-class BoardsController < ApplicationController
-  before_action :set_board, except: %i[ index new create ]
-  before_action :ensure_permission_to_admin_board, only: %i[ update destroy ]
-
-  private
-    def ensure_permission_to_admin_board
-      unless Current.user.can_administer_board?(@board)
-        head :forbidden
-      end
-    end
-end
-```
-
-**From** `app/controllers/users/roles_controller.rb`:
-```ruby
-class Users::RolesController < ApplicationController
-  before_action :set_user
-  before_action :ensure_permission_to_administer_user
-
-  private
-    def ensure_permission_to_administer_user
-      head :forbidden unless Current.user.can_administer?(@user)
-    end
-end
-```
-
-**From** `app/controllers/boards/publications_controller.rb`:
-```ruby
-class Boards::PublicationsController < ApplicationController
-  include BoardScoped
-
-  before_action :ensure_permission_to_admin_board  # From BoardScoped concern
-
-  def create
-    @board.publish
-  end
-
-  def destroy
-    @board.unpublish
-    @board.reload
-  end
-end
-```
-
-**From** `app/controllers/webhooks_controller.rb`:
-```ruby
-class WebhooksController < ApplicationController
-  include BoardScoped
-
-  before_action :ensure_admin  # From Authorization concern
-  before_action :set_webhook, except: %i[ index new create ]
-end
-```
+Put shared checks in the scoping concern (e.g. `ensure_permission_to_admin_board` in `BoardScoped`) so controllers just declare `before_action :ensure_permission_to_admin_board`.
 
 ---
 
 ## Pattern 6: ETags for HTTP Caching
 
-### Problem
-Responses that haven't changed are re-rendered and sent, wasting server resources and bandwidth.
+Use `fresh_when` with ETags based on the data being rendered; Rails returns 304 Not Modified when the client's cached version matches.
 
-### Solution
-Use `fresh_when` with ETags based on the data being rendered. Rails returns 304 Not Modified when the client's cached version matches.
-
-### Example
-
-**Simple ETag with single record** - `app/controllers/events_controller.rb`:
 ```ruby
-class EventsController < ApplicationController
-  include DayTimelinesScoped
-
-  def index
-    fresh_when @day_timeline
-  end
+def index
+  @columns = @board.columns.sorted
+  fresh_when etag: @columns
 end
 ```
 
-**ETag with collection** - `app/controllers/boards/columns_controller.rb`:
-```ruby
-class Boards::ColumnsController < ApplicationController
-  include BoardScoped
-
-  def index
-    @columns = @board.columns.sorted
-    fresh_when etag: @columns
-  end
-
-  def show
-    set_page_and_extract_portion_from @column.cards.active.latest.with_golden_first.preloaded
-    fresh_when etag: @page.records
-  end
-end
-```
-
-**ETag with multiple values** - `app/controllers/boards_controller.rb`:
-```ruby
-class BoardsController < ApplicationController
-  def show
-    # ...
-    fresh_when etag: [ @board, @page.records, @user_filtering, Current.account ]
-  end
-end
-```
-
-**ETag with optional resource** - `app/controllers/cards/watches_controller.rb`:
-```ruby
-class Cards::WatchesController < ApplicationController
-  include CardScoped
-
-  def show
-    fresh_when etag: @card.watch_for(Current.user) || "none"
-  end
-end
-```
-
-**ETag with complex dependencies** - `app/controllers/my/menus_controller.rb`:
-```ruby
-def show
-  # ...
-  fresh_when etag: [ @filters, @boards, @tags, @users, @accounts ]
-end
-```
-
-**Global ETag in ApplicationController** - `app/controllers/application_controller.rb`:
-```ruby
-class ApplicationController < ActionController::Base
-  etag { "v1" }  # Bump when changing response format
-end
-```
+Full treatment (multi-object ETags, `stale?`, global etag components): [[rails-performance]].
 
 ---
 
 ## Pattern 7: Multiple Format Responses
 
-### Problem
-Controllers need to support HTML, JSON API, and Turbo Stream responses with appropriate behavior for each.
+Use `respond_to` blocks for HTML, JSON, and Turbo Stream. Conventions: HTML redirects, JSON returns status codes, Turbo Stream renders the matching `.turbo_stream.erb` template.
 
-### Solution
-Use `respond_to` blocks to handle different formats. Common patterns: HTML redirects, JSON returns status codes, Turbo Stream renders partials.
-
-### Example
-
-**Standard CRUD response** - `app/controllers/cards_controller.rb`:
 ```ruby
 def create
   respond_to do |format|
@@ -508,50 +198,10 @@ def update
     format.json { render :show }
   end
 end
-
-def destroy
-  @card.destroy!
-
-  respond_to do |format|
-    format.html { redirect_to @card.board, notice: "Card deleted" }
-    format.json { head :no_content }
-  end
-end
 ```
 
-**State change response** - `app/controllers/cards/closures_controller.rb`:
 ```ruby
-def create
-  capture_card_location
-  @card.close
-  refresh_stream_if_needed
-
-  respond_to do |format|
-    format.turbo_stream
-    format.json { head :no_content }
-  end
-end
-```
-
-**Conditional success/failure** - `app/controllers/cards/assignments_controller.rb`:
-```ruby
-def create
-  if @card.toggle_assignment @board.users.active.find(params[:assignee_id])
-    respond_to do |format|
-      format.turbo_stream
-      format.json { head :no_content }
-    end
-  else
-    respond_to do |format|
-      format.turbo_stream
-      format.json { head :unprocessable_entity }
-    end
-  end
-end
-```
-
-**HTML with validation errors** - `app/controllers/users_controller.rb`:
-```ruby
+# HTML with validation errors
 def update
   if @user.update(user_params)
     respond_to do |format|
@@ -571,40 +221,8 @@ end
 
 ## Pattern 8: Thin Controllers with Rich Models
 
-### Problem
-Controllers grow fat with business logic, making testing difficult and creating coupling between HTTP concerns and domain logic.
+Controllers handle HTTP concerns only (params, responses, redirects). Business logic lives in model methods with intention-revealing names; plain ActiveRecord operations are fine too — no service layer in between.
 
-### Solution
-Keep controllers thin - they should only handle HTTP concerns (params, responses, redirects). Delegate all business logic to model methods with intention-revealing names.
-
-### Example
-
-**Thin controller** - `app/controllers/cards/goldnesses_controller.rb`:
-```ruby
-class Cards::GoldnessesController < ApplicationController
-  include CardScoped
-
-  def create
-    @card.gild  # Business logic lives in Card model
-
-    respond_to do |format|
-      format.turbo_stream { render_card_replacement }
-      format.json { head :no_content }
-    end
-  end
-
-  def destroy
-    @card.ungild  # Business logic lives in Card model
-
-    respond_to do |format|
-      format.turbo_stream { render_card_replacement }
-      format.json { head :no_content }
-    end
-  end
-end
-```
-
-**Thin controller** - `app/controllers/boards/publications_controller.rb`:
 ```ruby
 class Boards::PublicationsController < ApplicationController
   include BoardScoped
@@ -612,36 +230,17 @@ class Boards::PublicationsController < ApplicationController
   before_action :ensure_permission_to_admin_board
 
   def create
-    @board.publish  # Business logic lives in Board model
+    @board.publish    # business logic lives in Board
   end
 
   def destroy
-    @board.unpublish  # Business logic lives in Board model
-    @board.reload
+    @board.unpublish
   end
 end
-```
 
-**Thin controller** - `app/controllers/boards/involvements_controller.rb`:
-```ruby
-class Boards::InvolvementsController < ApplicationController
-  include BoardScoped
-
-  def update
-    @board.access_for(Current.user).update!(involvement: params[:involvement])
-  end
-end
-```
-
-**Plain ActiveRecord operations are fine** - `app/controllers/cards/comments_controller.rb`:
-```ruby
+# Plain ActiveRecord is fine
 def create
   @comment = @card.comments.create!(comment_params)
-
-  respond_to do |format|
-    format.turbo_stream
-    format.json { head :created, location: card_comment_path(@card, @comment, format: :json) }
-  end
 end
 ```
 
@@ -649,11 +248,8 @@ end
 
 ## Pattern 9: URL as State for GET Actions
 
-**Problem:** Filters, tabs, search terms, and sort orders stored in session or JavaScript state make views impossible to link, bookmark, or share, and a refresh loses them.
+Filters, tabs, search terms, and sort orders stored in session or JavaScript state make views impossible to link, bookmark, or share, and a refresh loses them. For GET actions, keep UI state in readable URL query params — shareable, bookmarkable, refresh-safe, back-button-friendly.
 
-**Solution:** For GET actions, keep UI state in readable URL query params. The URL is the canonical state: shareable, bookmarkable, refresh-safe, and back-button-friendly.
-
-**Example:**
 ```ruby
 # /opportunities?category=acting&company=eutc&sort=newest
 def index
@@ -670,7 +266,6 @@ end
 
 **Key Points:**
 - Prefer human-readable values (`?category=acting`, slugs) over opaque ids where possible.
-- Filter links become shareable deep links (e.g. a per-company listing URL) for free.
 - Forms that filter should use `method: :get` so submissions land in the URL.
 - Session/cookies are for cross-request identity, not view state.
 
@@ -685,7 +280,7 @@ end
 | Nested Singular Resources | Non-CRUD state changes (close, watch, pin) |
 | Scoped Resource Loading | Always - load through user's accessible scope |
 | Permission before_actions | Restricting actions to authorized users |
-| ETags with fresh_when | Cacheable GET requests |
+| ETags with fresh_when | Cacheable GET requests → [[rails-performance]] |
 | respond_to blocks | Supporting multiple response formats |
 | Thin Controllers | Always - delegate logic to models |
 | URL as State | GET actions with filters, tabs, search, or sort |

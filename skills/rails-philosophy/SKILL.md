@@ -5,22 +5,9 @@ description: Core philosophies, design choices, and tacit knowledge underpinning
 
 # Rails Philosophy
 
-The foundational principles and tacit knowledge behind this style of Rails development, distilled from 37signals/Basecamp's approach to building software.
+The foundational principles behind this style of Rails development, distilled from 37signals/Basecamp's approach.
 
-## When to Use
-- Starting a new Rails project
-- Making architectural decisions
-- Choosing between approaches
-- Reviewing code for alignment with principles
-- Onboarding to this style of development
-
----
-
-## Core Philosophy
-
-> "We aim to write code that is a pleasure to read, and we have a lot of opinions about how to do it well. Writing great code is an essential part of our programming culture, and we deliberately set a high bar for every code change anyone contributes. We care about how code reads, how code looks, and how code makes you feel when you read it."
-
-**Source:** [STYLE.md](STYLE.md)
+> "We aim to write code that is a pleasure to read, and we have a lot of opinions about how to do it well. We care about how code reads, how code looks, and how code makes you feel when you read it."
 
 ---
 
@@ -28,16 +15,8 @@ The foundational principles and tacit knowledge behind this style of Rails devel
 
 ### 1. Vanilla Rails Is Plenty
 
-**The Belief:** Rails provides everything you need. Resist the urge to add layers of abstraction.
+**The Belief:** Rails provides everything you need. Resist the urge to add layers of abstraction: no service objects wrapping simple operations, no repository pattern over ActiveRecord, no CQRS for typical apps, no dependency injection containers.
 
-**In Practice:**
-- No service objects wrapping simple operations
-- No repository pattern over ActiveRecord
-- No command/query separation (CQRS) for typical apps
-- No dependency injection containers
-- Direct model invocation from controllers
-
-**Anti-patterns to Avoid:**
 ```ruby
 # Over-engineered
 class CreateCardService
@@ -58,257 +37,48 @@ end
 
 **The Test:** If you're adding an abstraction, ask: "Does Rails already solve this?" Usually, yes.
 
----
-
 ### 2. The Model Is the Domain
 
-**The Belief:** ActiveRecord models aren't just database wrappers—they ARE your domain. Enrich them.
-
-**In Practice:**
-- Business logic lives in models, not services
-- Models have intention-revealing public APIs (`card.gild`, `card.close`)
-- Controllers invoke model methods, not orchestrate operations
-- Concerns extract reusable behavior, not "separate responsibilities"
-
-**Example:**
-```ruby
-# The model IS the domain
-class Card < ApplicationRecord
-  def close(user: Current.user)
-    transaction do
-      create_closure!(user: user)
-      track_event(:closed, creator: user)
-    end
-  end
-
-  def gild
-    create_goldness!(user: Current.user) unless golden?
-  end
-
-  def postpone
-    transaction do
-      create_not_now!(user: Current.user)
-      track_event(:postponed)
-    end
-  end
-end
-
-# Controller just invokes
-class Cards::ClosuresController < ApplicationController
-  def create
-    @card.close
-  end
-end
-```
-
----
+**The Belief:** ActiveRecord models aren't just database wrappers — they ARE your domain. Business logic lives in models with intention-revealing public APIs (`card.gild`, `card.close`); controllers invoke model methods, they don't orchestrate operations. See [[rails-controllers]] Pattern 8.
 
 ### 3. REST Everything
 
-**The Belief:** Every operation can be modeled as CRUD on a resource. This isn't limiting—it's clarifying.
+**The Belief:** Every operation can be modeled as CRUD on a resource. This isn't limiting — it's clarifying. State changes become resources: `POST /cards/:id/close` → `POST /cards/:id/closure`; reopen → `DELETE /cards/:id/closure`.
 
-**In Practice:**
-- `POST /cards/:id/close` → `POST /cards/:id/closure`
-- `POST /cards/:id/reopen` → `DELETE /cards/:id/closure`
-- `POST /cards/:id/gild` → `POST /cards/:id/goldness`
-- State changes become resources (Closure, Goldness, Pin, Watch)
-
-**Why It Works:**
-- Consistent mental model
-- Standard HTTP semantics
-- Easier caching (resources have URLs)
-- Clear controller responsibilities
-
-**The Pattern:**
-```ruby
-# A "state change" becomes a resource
-resources :cards do
-  resource :closure      # close = create, reopen = destroy
-  resource :goldness     # gild = create, ungild = destroy
-  resource :pin          # pin = create, unpin = destroy
-  resource :watch        # watch = create, unwatch = destroy
-  resource :not_now      # postpone = create
-end
-```
-
----
+**Why It Works:** consistent mental model, standard HTTP semantics, easier caching (resources have URLs), clear controller responsibilities. The routing pattern lives in [[rails-controllers]] Pattern 3.
 
 ### 4. Concerns Over Services
 
-**The Belief:** Composition through concerns is more natural in Rails than service objects.
-
-**In Practice:**
-- Concerns for shared model behavior (Eventable, Searchable, Notifiable)
-- Concerns for controller mixins (CardScoped, BoardScoped, Authentication)
-- Model namespacing for complex features (Card::Closeable, Card::Searchable)
-
-**Why Concerns Win:**
-- They extend the class, not wrap it
-- No indirection—the behavior IS on the model
-- Easier testing—test the model directly
-- Rails conventions for inclusion
-
-**Structure:**
-```ruby
-# Shared across models
-module Eventable
-  extend ActiveSupport::Concern
-
-  included do
-    has_many :events, as: :eventable
-  end
-
-  def track_event(action, ...)
-    # ...
-  end
-end
-
-# Model-specific
-module Card::Closeable
-  extend ActiveSupport::Concern
-
-  def close(user: Current.user)
-    # ...
-  end
-
-  def reopen
-    # ...
-  end
-end
-```
-
----
+**The Belief:** Composition through concerns is more natural in Rails than service objects. Concerns extend the class rather than wrap it — no indirection, the behavior IS on the model, and testing means testing the model directly. Shared behavior goes in `app/models/concerns/` (Eventable, Searchable); model-specific behavior in namespaced concerns (`Card::Closeable`). Structure and template-method patterns: [[rails-models]].
 
 ### 5. Database-Backed Everything (Solid Stack)
 
-**The Belief:** You probably don't need Redis. The database you already have is remarkably capable.
+**The Belief:** You probably don't need Redis. **Solid Queue** for jobs, **Solid Cache** for caching, **Solid Cable** for WebSockets; SQLite for small deployments, MySQL for scale.
 
-**In Practice:**
-- **Solid Queue** for background jobs (not Sidekiq)
-- **Solid Cache** for caching (not Redis)
-- **Solid Cable** for WebSockets (not Redis)
-- SQLite for small deployments, MySQL for scale
-
-**Why It Works:**
-- One less service to operate
-- Simpler infrastructure
-- Transactions across jobs and data
-- ACID guarantees
-
-**The Trade-off:** Slightly higher latency for pub/sub, but simpler operations. For most apps, this is the right trade.
-
----
+**Why It Works:** one less service to operate, transactions across jobs and data, ACID guarantees. The trade-off — slightly higher pub/sub latency for simpler operations — is right for most apps. Setup: [[rails-project-setup]].
 
 ### 6. Server-Rendered First (Hotwire)
 
-**The Belief:** HTML over the wire beats JSON APIs for most web applications.
+**The Belief:** HTML over the wire beats JSON APIs for most web applications. Turbo Drive for navigation, Frames for partial updates, Streams for real-time, Stimulus for sprinkles. No SPA.
 
-**In Practice:**
-- Turbo Drive for page navigation
-- Turbo Frames for partial updates
-- Turbo Streams for real-time
-- Stimulus for JavaScript sprinkles
-- No React/Vue/Angular SPA
-
-**Why It Works:**
-- Less JavaScript to maintain
-- Server controls the state
-- Progressive enhancement built-in
-- Faster initial render
-
-**The Pattern:**
-```ruby
-# Controller responds with HTML or Turbo Stream
-respond_to do |format|
-  format.html { redirect_to @card }
-  format.turbo_stream
-end
-```
-
-```erb
-<%# Turbo Stream template %>
-<%= turbo_stream.replace @card %>
-<%= turbo_stream.append "flash", partial: "shared/flash" %>
-```
-
----
+**Why It Works:** less JavaScript to maintain, server controls the state, progressive enhancement built-in, faster initial render. See [[rails-turbo]] and [[rails-stimulus]].
 
 ### 7. Convention Over Configuration (Really)
 
-**The Belief:** Follow Rails conventions even when they feel "limiting." The consistency pays off.
-
-**In Practice:**
-- Standard directory structure
-- RESTful routes
-- Model/View/Controller separation
-- ActiveRecord patterns
-- Rails naming conventions
-
-**When to Break Convention:** Almost never. If you're fighting Rails, you're probably wrong.
-
----
+**The Belief:** Follow Rails conventions even when they feel "limiting." When to break convention: almost never. If you're fighting Rails, you're probably wrong.
 
 ### 8. Shallow Jobs, Rich Models
 
-**The Belief:** Background jobs are just async method calls. Keep them thin.
-
-**In Practice:**
-```ruby
-# Job is just a shell
-class NotifyRecipientsJob < ApplicationJob
-  def perform(notifiable)
-    notifiable.notify_recipients  # Model does the work
-  end
-end
-
-# Model has the logic
-module Notifiable
-  def notify_recipients_later
-    NotifyRecipientsJob.perform_later(self)
-  end
-
-  def notify_recipients
-    Notifier.for(self)&.notify  # The actual work
-  end
-end
-```
-
-**Naming Convention:**
-- `*_later` — enqueues the job
-- `*_now` — synchronous version
-- Job class just calls the `_now` method
-
----
+**The Belief:** Background jobs are just async method calls. The job class is a shell that calls a model method; `*_later` enqueues, `*_now` is the synchronous version. See [[rails-jobs]] Patterns 1 and 3.
 
 ### 9. Multi-Tenancy Without Complexity
 
-**The Belief:** URL-based tenancy is simpler than subdomains and just as effective.
-
-**In Practice:**
-- Tenant ID in URL path: `/123456/boards/...`
-- `Current.account` for request-scoped context
-- `belongs_to :account, default: -> { Current.account }`
-- Job context serialization automatically
-
-**Why Not Subdomains:**
-- Simpler local development
-- No wildcard SSL certificates
-- Easier testing
-- Works behind load balancers
-
----
+**The Belief:** URL-based tenancy (`/123456/boards/...` + `Current.account`) is simpler than subdomains and just as effective: simpler local development, no wildcard SSL, easier testing, works behind load balancers. Implementation: [[rails-multi-tenancy]].
 
 ### 10. Readability Over Cleverness
 
-**The Belief:** Code is read far more often than written. Optimize for the reader.
+**The Belief:** Code is read far more often than written. Expanded conditionals over guard clauses, methods ordered by invocation flow, intention-revealing names, no metaprogramming for its own sake.
 
-**In Practice:**
-- Expanded conditionals over guard clauses
-- Methods ordered by invocation flow
-- Intention-revealing names
-- No metaprogramming for its own sake
-
-**Example:**
 ```ruby
 # Clever but hard to read
 def process
@@ -329,25 +99,13 @@ end
 
 ## Decision Framework
 
-When facing a design choice, ask these questions in order:
+When facing a design choice, ask in order:
 
-### 1. Does Rails Already Solve This?
-If yes, use Rails. Don't add abstractions.
-
-### 2. Can This Be a Concern?
-Shared behavior → concern. Not a service.
-
-### 3. Can This Be a Resource?
-Non-CRUD action → model it as a resource with CRUD.
-
-### 4. Where Does This Logic Belong?
-- Data manipulation → Model
-- HTTP concerns → Controller
-- Presentation → View/Helper
-- Async execution → Job (that calls model)
-
-### 5. Am I Adding Accidental Complexity?
-If the abstraction doesn't pay for itself immediately, don't add it.
+1. **Does Rails already solve this?** If yes, use Rails. Don't add abstractions.
+2. **Can this be a concern?** Shared behavior → concern. Not a service.
+3. **Can this be a resource?** Non-CRUD action → model it as a resource with CRUD.
+4. **Where does this logic belong?** Data manipulation → Model. HTTP → Controller. Presentation → View/Helper. Async → Job (that calls a model).
+5. **Am I adding accidental complexity?** If the abstraction doesn't pay for itself immediately, don't add it.
 
 ---
 
@@ -370,12 +128,12 @@ If the abstraction doesn't pay for itself immediately, don't add it.
 
 ## When Exceptions Are OK
 
-These principles aren't religious doctrine. Break them when:
+These principles aren't religious doctrine. Break them for:
 
-1. **Form Objects** — For complex multi-model forms with custom validation
-2. **Query Objects** — For genuinely complex reporting queries
-3. **Service Objects** — For coordinating external services (payments, etc.)
-4. **Presenters** — For complex view logic spanning multiple models
+1. **Form Objects** — complex multi-model forms with custom validation
+2. **Query Objects** — genuinely complex reporting queries
+3. **Service Objects** — coordinating external services (payments, etc.)
+4. **Presenters** — complex view logic spanning multiple models
 
 But these should be rare. Most apps don't need them.
 
@@ -383,41 +141,7 @@ But these should be rare. Most apps don't need them.
 
 ## The Tacit Knowledge
 
-### "Look for Similar Code"
-> "When writing new code, unless you are very familiar with our approach, try to find similar code elsewhere to look for inspiration."
-
-Before writing new code, grep the codebase for similar patterns. Consistency matters more than theoretical correctness.
-
-### "We Love Discussing Code"
-> "If you have questions about how to write something, or if you detect some smell you are not quite sure how to solve, please ask away."
-
-When uncertain, ask. A PR is a great place for this discussion.
-
-### "How Code Makes You Feel"
-> "We care about how code reads, how code looks, and how code makes you feel when you read it."
-
-If code feels wrong, it probably is. Trust your instincts, then articulate why.
-
-### The High Bar
-> "We deliberately set a high bar for every code change anyone contributes."
-
-Every line of code is reviewed. Quality isn't optional.
-
----
-
-## Summary
-
-| Principle | Manifestation |
-|-----------|---------------|
-| Vanilla Rails | No unnecessary abstractions |
-| Model is Domain | Rich models, thin controllers |
-| REST Everything | Resources over custom actions |
-| Concerns Over Services | Composition through modules |
-| Solid Stack | Database over Redis |
-| Hotwire First | Server-rendered HTML |
-| Convention | Follow Rails patterns |
-| Shallow Jobs | Delegate to models |
-| Simple Multi-Tenancy | URL-based with Current |
-| Readability | Clear over clever |
-
-**Source:** Patterns extracted from the Fizzy codebase, [STYLE.md](STYLE.md), and [Vanilla Rails Is Plenty](https://dev.37signals.com/vanilla-rails-is-plenty/)
+- **"Look for similar code."** Before writing new code, grep the codebase for similar patterns. Consistency matters more than theoretical correctness.
+- **"We love discussing code."** When uncertain, ask — a PR is a great place for the discussion.
+- **"How code makes you feel."** If code feels wrong, it probably is. Trust your instincts, then articulate why.
+- **The high bar.** Every line of code is reviewed. Quality isn't optional.

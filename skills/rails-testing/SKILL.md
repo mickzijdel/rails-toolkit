@@ -5,23 +5,9 @@ description: Use when writing tests with fixtures, system tests, VCR cassettes, 
 
 # Rails Testing Patterns
 
-## When to Use
-- Writing unit tests for models
-- Creating integration tests for controllers
-- Setting up system tests with Capybara
-- Working with test fixtures
-- Recording external API calls with VCR
-- Managing test context (Current.account, Current.user)
-
----
-
 ## 1. Test Helper Setup
 
-**Problem:** Tests need consistent configuration, fixtures, and helper modules loaded before running.
-
-**Solution:** Configure the test suite in `test/test_helper.rb` with parallel workers, fixtures, and common setup/teardown hooks.
-
-**Example:**
+Configure the suite once in `test/test_helper.rb`: parallel workers, fixtures, helper modules, and `Current` setup/teardown.
 
 ```ruby
 # test/test_helper.rb
@@ -39,12 +25,10 @@ WebMock.allow_net_connect!
 module ActiveSupport
   class TestCase
     parallelize workers: :number_of_processors, work_stealing: ENV["WORK_STEALING"] != "false"
-
-    # Setup all fixtures in test/fixtures/*.yml for all tests in alphabetical order.
     fixtures :all
 
     include ActiveJob::TestHelper
-    include ActionTextTestHelper, CachingTestHelper, CardTestHelper, ChangeTestHelper, SessionTestHelper
+    include ActionTextTestHelper, CachingTestHelper, SessionTestHelper
     include Turbo::Broadcastable::TestHelper
 
     setup do
@@ -52,30 +36,17 @@ module ActiveSupport
     end
 
     teardown do
-      Current.clear_all
+      Current.clear_all   # prevent Current leaking between tests
     end
   end
 end
 ```
 
-**Source:** `test/test_helper.rb`
-
-**Key Points:**
-- `parallelize` enables parallel test execution for speed
-- `fixtures :all` loads all fixture files automatically
-- The `setup` block sets `Current.account` for every test
-- The `teardown` block clears `Current` to prevent leakage between tests
-- Include helper modules for common test utilities
-
 ---
 
 ## 2. Fixture Patterns with Deterministic UUIDs
 
-**Problem:** Fizzy uses UUID primary keys, but fixtures need deterministic IDs for cross-references and test ordering.
-
-**Solution:** Use `ActiveRecord::FixtureSet.identify` with `:uuid` type to generate deterministic UUIDs. Reference other fixtures using the `_uuid` suffix.
-
-**Example:**
+Apps with UUID primary keys need deterministic fixture IDs for cross-references. Use `ActiveRecord::FixtureSet.identify` with `:uuid`, and reference other fixtures with the `_uuid` suffix.
 
 ```yaml
 # test/fixtures/accounts.yml
@@ -83,129 +54,25 @@ end
   id: <%= ActiveRecord::FixtureSet.identify("37s", :uuid) %>
   name: 37signals
   external_account_id: <%= ActiveRecord::FixtureSet.identify("37signals") %>
-  cards_count: 5
 
-initech:
-  id: <%= ActiveRecord::FixtureSet.identify("initech", :uuid) %>
-  name: Initech LLC
-  external_account_id: <%= ActiveRecord::FixtureSet.identify("initech") %>
-  cards_count: 0
-```
-
-```yaml
 # test/fixtures/users.yml
 david:
   id: <%= ActiveRecord::FixtureSet.identify("david", :uuid) %>
   name: David
-  role: member
-  identity: david
-  account: 37s_uuid  # Reference with _uuid suffix
-  verified_at: <%= Time.current.to_fs(:db) %>
-
-kevin:
-  id: <%= ActiveRecord::FixtureSet.identify("kevin", :uuid) %>
-  name: Kevin
-  role: admin
-  identity: kevin
-  account: 37s_uuid
+  identity: david        # non-UUID FK: plain fixture name
+  account: 37s_uuid      # UUID FK: reference with _uuid suffix
   verified_at: <%= Time.current.to_fs(:db) %>
 ```
 
-```yaml
-# test/fixtures/cards.yml
-logo:
-  id: <%= ActiveRecord::FixtureSet.identify("logo", :uuid) %>
-  number: 1
-  board: writebook_uuid
-  creator: david_uuid
-  column: writebook_triage_uuid
-  title: The logo isn't big enough
-  due_on: <%= 3.days.from_now %>
-  created_at: <%= 1.week.ago %>
-  status: published
-  last_active_at: <%= 1.week.ago %>
-  account: 37s_uuid
-```
-
-**Source:** `test/fixtures/accounts.yml`, `test/fixtures/users.yml`, `test/fixtures/cards.yml`
-
 **Key Points:**
-- Always use `<%= ActiveRecord::FixtureSet.identify("name", :uuid) %>` for UUID ID columns
-- Reference other fixtures with the `_uuid` suffix: `account: 37s_uuid`, `board: writebook_uuid`
-- For non-UUID foreign keys, use plain fixture names: `identity: david`
-- UUIDs are generated deterministically so `.first`/`.last` work correctly in tests
-- Fixture UUIDs sort "before" runtime-created records, so new records are always "newer"
-- **A fixture with an explicit `id:` breaks association-by-label references to it.** If
-  `users.yml` `admin` sets `id: 1`, then `creator: admin` in another fixture writes the FK as
-  `ActiveRecord::FixtureSet.identify(:admin)` — a *hashed* id that does **not** equal the
-  explicit `1` — so `record.creator` loads `nil` even though `creator_id` is set. When a test
-  needs the association to resolve, reference the explicit id directly (`creator_id: 1`),
-  not the label.
+- Stock `identify(:uuid)` is deterministic but *unordered*. To make fixtures also sort before runtime-created records (so `.first`/`.last` behave predictably), prepend a module into `ActiveRecord::FixtureSet` (via `ActiveSupport.on_load(:active_record_fixture_set)`) that overrides `identify` to emit UUIDv7s with past timestamps derived from the label: `Zlib.crc32("fixtures/#{label}")` milliseconds after a fixed `Time.utc(2024, 1, 1)` base. The same override can treat a `_uuid` label suffix as an implicit `:uuid` column type.
+- **A fixture with an explicit `id:` breaks association-by-label references to it.** If `users.yml` `admin` sets `id: 1`, then `creator: admin` elsewhere writes the FK as `FixtureSet.identify(:admin)` — a *hashed* id that does **not** equal the explicit `1` — so `record.creator` loads `nil` even though `creator_id` is set. Reference the explicit id directly (`creator_id: 1`), not the label.
 
 ---
 
-## 3. Fixture UUID Generation (How It Works)
+## 3. System Tests with Capybara and Selenium
 
-**Problem:** Fixtures need UUIDs that are both deterministic (for cross-references) and sorted correctly (for `.first`/`.last` queries).
-
-**Solution:** Custom UUID generation using UUIDv7 with deterministic timestamps derived from fixture labels.
-
-**Example:**
-
-```ruby
-# test/test_helper.rb
-module FixturesTestHelper
-  extend ActiveSupport::Concern
-
-  class_methods do
-    def identify(label, column_type = :integer)
-      if label.to_s.end_with?("_uuid")
-        column_type = :uuid
-        label = label.to_s.delete_suffix("_uuid")
-      end
-
-      return super(label, column_type) unless column_type.in?([ :uuid, :string ])
-      generate_fixture_uuid(label)
-    end
-
-    private
-
-    def generate_fixture_uuid(label)
-      # Generate deterministic UUIDv7 for fixtures that sorts by fixture ID
-      # Use CRC32 for deterministic ordering
-      fixture_int = Zlib.crc32("fixtures/#{label}") % (2**30 - 1)
-
-      # Translate to times in the past so runtime records are always newer
-      base_time = Time.utc(2024, 1, 1, 0, 0, 0)
-      timestamp = base_time + (fixture_int / 1000.0)
-
-      uuid_v7_with_timestamp(timestamp, label)
-    end
-  end
-end
-
-ActiveSupport.on_load(:active_record_fixture_set) do
-  prepend(FixturesTestHelper)
-end
-```
-
-**Source:** `test/test_helper.rb`
-
-**Key Points:**
-- The `_uuid` suffix triggers UUID generation automatically
-- Fixtures use timestamps in the past (2024) so runtime records sort after them
-- CRC32 ensures deterministic but well-distributed ordering
-- This allows `Model.first` and `Model.last` to work predictably in tests
-
----
-
-## 4. System Tests with Capybara and Selenium
-
-**Problem:** UI interactions need automated browser testing with proper driver configuration.
-
-**Solution:** Use `ApplicationSystemTestCase` with Chrome/Selenium, supporting both headless and visible browser modes.
-
-**Example:**
+Use `ApplicationSystemTestCase` with Chrome/Selenium, headless by default, visible via env var.
 
 ```ruby
 # test/application_system_test_case.rb
@@ -215,8 +82,6 @@ class ApplicationSystemTestCase < ActionDispatch::SystemTestCase
   browser_options = Selenium::WebDriver::Chrome::Options.new.tap do |opts|
     opts.add_argument("--window-size=1200,800")
     opts.add_argument("--disable-extensions")
-    opts.add_argument("--disable-renderer-backgrounding")
-    opts.add_argument("--disable-backgrounding-occluded-windows")
     opts.add_argument("--deny-permission-prompts")
     opts.add_argument("--enable-automation")
   end
@@ -230,7 +95,7 @@ class ApplicationSystemTestCase < ActionDispatch::SystemTestCase
     Capybara::Selenium::Driver.new(app, browser: :chrome, options: browser_options)
   end
 
-  # Use SYSTEM_TESTS_BROWSER=true to see the browser
+  # SYSTEM_TESTS_BROWSER=true to watch the browser
   if ENV["SYSTEM_TESTS_BROWSER"]
     driven_by :chrome, screen_size: [ 1200, 1000 ]
   else
@@ -241,8 +106,6 @@ end
 
 ```ruby
 # test/system/smoke_test.rb
-require "application_system_test_case"
-
 class SmokeTest < ApplicationSystemTestCase
   test "create a card" do
     sign_in_as(users(:david))
@@ -256,30 +119,13 @@ class SmokeTest < ApplicationSystemTestCase
     assert_selector "h3", text: "Hello, world!"
   end
 
-  test "dragging card to a new column" do
-    sign_in_as(users(:david))
-
-    card = Card.find("03axhd1h3qgnsffqplkyf28fv")
-    assert_nil(card.column)
-
-    visit board_url(boards(:writebook))
-
-    card_el = page.find("#article_card_03axhd1h3qgnsffqplkyf28fv")
-    column_el = page.find("#column_03axmcferfmbnv4qg816nw6bg")
-    cards_count = column_el.find(".cards__expander-count").text.to_i
-
-    card_el.drag_to(column_el)
-
-    column_el.find(".cards__expander-count", text: cards_count + 1)
-    assert_equal("Triage", card.reload.column.name)
-  end
-
   private
     def sign_in_as(user)
       visit session_transfer_url(user.identity.transfer_id, script_name: nil)
       assert_selector "h1", text: "Latest Activity"
     end
 
+    # Rich-text editors that read their value live need execute_script, not fill_in
     def fill_in_lexxy(selector = "lexxy-editor", with:)
       editor_element = find(selector)
       editor_element.set with
@@ -288,24 +134,11 @@ class SmokeTest < ApplicationSystemTestCase
 end
 ```
 
-**Source:** `test/application_system_test_case.rb`, `test/system/smoke_test.rb`
-
-**Key Points:**
-- Set `SYSTEM_TESTS_BROWSER=true` to see the browser during tests
-- Use `sign_in_as` helper for authentication in system tests
-- Use `drag_to` for drag-and-drop testing
-- Use `assert_selector` for DOM assertions
-- Custom helpers like `fill_in_lexxy` handle complex UI components
-
 ---
 
-## 5. VCR Cassettes for HTTP Stubbing
+## 4. VCR Cassettes for HTTP Stubbing
 
-**Problem:** Tests that make external API calls (e.g., OpenAI) are slow and flaky.
-
-**Solution:** Use VCR to record HTTP interactions and replay them in future test runs.
-
-**Example:**
+Record external API calls (e.g. OpenAI) once, replay them in future runs.
 
 ```ruby
 # test/test_helper.rb
@@ -314,7 +147,7 @@ VCR.configure do |config|
   config.cassette_library_dir = "test/vcr_cassettes"
   config.hook_into :webmock
 
-  # Filter sensitive data from recordings
+  # Redact API keys from recordings
   config.filter_sensitive_data("<OPEN_AI_KEY>") {
     Rails.application.credentials.openai_api_key || ENV["OPEN_AI_API_KEY"]
   }
@@ -363,125 +196,32 @@ module VcrTestHelper
   end
 
   class_methods do
-    # Use to force record mode at development time
     def vcr_record!
       raise "#vcr_record! is meant for dev time. You are not supposed to run it in CI." if ENV["CI"]
       self.vcr_record = true
     end
   end
-
-  def without_vcr_body_matching(&block)
-    VCR.use_cassette("#{@casette_name}_without_body", match_requests_on: [ :method, :uri ], &block)
-  end
 end
 ```
 
-**Usage in tests:**
-
-```ruby
-class SomeExternalApiTest < ActiveSupport::TestCase
-  include VcrTestHelper
-
-  # Uncomment during development to record new cassettes:
-  # vcr_record!
-
-  test "makes API call" do
-    # First run with VCR_RECORD=true records the cassette
-    # Subsequent runs replay from the cassette
-    result = ExternalService.call
-    assert result.success?
-  end
-end
-```
-
-**Source:** `test/test_helper.rb`, `test/test_helpers/vcr_test_helper.rb`
-
-**Key Points:**
-- Set `VCR_RECORD=true` environment variable to record new cassettes
-- Use `filter_sensitive_data` to redact API keys from cassettes
-- Custom request matchers ignore dynamic data like timestamps
-- Cassettes are stored in `test/vcr_cassettes/`
-- Include `VcrTestHelper` in tests that need HTTP recording
+Include `VcrTestHelper` in tests that hit HTTP; record new cassettes with `VCR_RECORD=true` (or a temporary `vcr_record!` in the class).
 
 ---
 
-## 6. Parallel Test Execution
+## 5. Parallel Test Execution
 
-**Problem:** Large test suites are slow when run serially. System tests can conflict when run in parallel.
+Unit/integration tests parallelize across CPUs (Pattern 1); system tests must run with `PARALLEL_WORKERS=1` — they can't run reliably in parallel. Also use `PARALLEL_WORKERS=1` when debugging flaky tests.
 
-**Solution:** Enable parallel workers for unit/integration tests but disable for system tests.
-
-**Example:**
-
-```ruby
-# test/test_helper.rb
-module ActiveSupport
-  class TestCase
-    parallelize workers: :number_of_processors, work_stealing: ENV["WORK_STEALING"] != "false"
-  end
-end
-```
-
-```ruby
-# config/ci.rb
-SYSTEM_TEST_ENV = "PARALLEL_WORKERS=1" # system tests can't run reliably in parallel
-
-CI.run do
-  step "Tests: OSS",           "#{OSS_ENV} bin/rails test"
-  step "Tests: OSS System",    "#{OSS_ENV} #{SYSTEM_TEST_ENV} bin/rails test:system"
-end
-```
-
-**Running tests with parallel control:**
-
-```bash
-# Run tests with default parallel workers
-bin/rails test
-
-# Disable parallelization for debugging
-PARALLEL_WORKERS=1 bin/rails test
-
-# Run system tests (always single worker)
-PARALLEL_WORKERS=1 bin/rails test:system
-```
-
-**Source:** `test/test_helper.rb`, `config/ci.rb`, `AGENTS.md`
-
-**Key Points:**
-- Unit tests run in parallel by default using all CPUs
-- System tests must run with `PARALLEL_WORKERS=1` to avoid conflicts
-- Use `PARALLEL_WORKERS=1` when debugging flaky tests
-- Work stealing (`work_stealing: true`) improves load balancing
-
-**Sharding across multiple CI jobs:** when a suite outgrows one machine, split it with a queue, never a static file list. Hardcoded slices ("job 3 runs `test/system/a*`–`test/system/m*`") always drift unbalanced, and the build is only as fast as its unluckiest job — one 14-minute shard makes a 14-minute build. With a queue, every worker pulls the next test file as it finishes, so all shards end at roughly the same time (the same work-stealing principle `parallelize` already applies in-process). Tools: `test-queue`, `parallel_tests` (runtime-based balancing), `spec-wrk` (networked queue across GitHub Actions jobs), or paid services like Knapsack Pro.
+**Sharding across multiple CI jobs:** when a suite outgrows one machine, split it with a queue, never a static file list. Hardcoded slices ("job 3 runs `test/system/a*`–`test/system/m*`") always drift unbalanced, and the build is only as fast as its unluckiest job. With a queue, every worker pulls the next test file as it finishes, so all shards end at roughly the same time (the same work-stealing principle `parallelize` already applies in-process). Tools: `test-queue`, `parallel_tests` (runtime-based balancing), `spec-wrk` (networked queue across GitHub Actions jobs), or paid services like Knapsack Pro.
 
 ---
 
-## 7. Current Context in Tests
+## 6. Current Context in Tests
 
-**Problem:** Tests need to set up `Current.account`, `Current.user`, and `Current.session` for proper context.
-
-**Solution:** Use `setup` blocks to set context and `teardown` to clear it. Use helper methods for temporary context changes.
-
-**Example:**
+`Current.account` is set globally in setup (Pattern 1); set `Current.session = sessions(:david)` when a test needs a logged-in user, and always `Current.clear_all` in teardown.
 
 ```ruby
-# test/test_helper.rb - Global setup for all tests
-module ActiveSupport
-  class TestCase
-    setup do
-      Current.account = accounts("37s")
-    end
-
-    teardown do
-      Current.clear_all
-    end
-  end
-end
-```
-
-```ruby
-# test/test_helpers/session_test_helper.rb
+# test/test_helpers/session_test_helper.rb — temporary user context
 module SessionTestHelper
   def with_current_user(user)
     user = users(user) unless user.is_a? User
@@ -497,97 +237,19 @@ end
 ```
 
 ```ruby
-# test/models/card_test.rb - Setting session for a specific test
-class CardTest < ActiveSupport::TestCase
-  setup do
-    Current.session = sessions(:david)
-  end
-
-  test "create assigns a number to the card" do
-    user = users(:david)
-    board = boards(:writebook)
-    # Current.account and Current.session are now set
-    card = Card.create!(title: "Test", board: board, creator: user)
-    assert_equal account.reload.cards_count, card.number
-  end
-end
-```
-
-```ruby
-# Integration test with account slug setup
+# URL-tenanted apps: set the account prefix for generated URLs
 class ActionDispatch::IntegrationTest
   setup do
     integration_session.default_url_options[:script_name] = "/#{ActiveRecord::FixtureSet.identify("37signals")}"
   end
 end
-
-class ActionDispatch::SystemTestCase
-  setup do
-    self.default_url_options[:script_name] = "/#{ActiveRecord::FixtureSet.identify("37signals")}"
-  end
-end
 ```
-
-**Source:** `test/test_helper.rb`, `test/test_helpers/session_test_helper.rb`, `test/models/card_test.rb`
-
-**Key Points:**
-- `Current.account` is set globally in test setup to the "37s" account
-- Use `Current.session = sessions(:name)` when tests need a logged-in user
-- Integration tests set `script_name` to simulate the account URL prefix
-- Always call `Current.clear_all` in teardown to prevent test pollution
-- Use `with_current_user` helper for temporary user context changes
 
 ---
 
-## 8. Running Tests
+## 7. Integration Test Authentication
 
-**Problem:** Need to know the correct commands for running different types of tests.
-
-**Solution:** Use the standard Rails test commands with optional configuration.
-
-**Example:**
-
-```bash
-# Run all unit tests (fast)
-bin/rails test
-
-# Run a single test file
-bin/rails test test/models/card_test.rb
-
-# Run a specific test by line number
-bin/rails test test/models/card_test.rb:25
-
-# Run system tests (uses browser)
-bin/rails test:system
-
-# Run full CI suite (style, security, tests)
-bin/ci
-
-# Disable parallel for debugging flaky tests
-PARALLEL_WORKERS=1 bin/rails test
-
-# See browser during system tests
-SYSTEM_TESTS_BROWSER=true bin/rails test:system
-```
-
-**Source:** `AGENTS.md`
-
-**Key Points:**
-- `bin/rails test` runs unit and integration tests
-- `bin/rails test:system` runs Capybara system tests
-- `bin/ci` runs the full CI pipeline (linting, security, tests)
-- Use line numbers to run specific tests: `test/file.rb:42`
-- Set `PARALLEL_WORKERS=1` to debug test isolation issues
-
----
-
-## 9. Integration Test Authentication
-
-**Problem:** Integration tests need to authenticate users to test protected endpoints.
-
-**Solution:** Use the `sign_in_as` helper which handles magic link authentication.
-
-**Example:**
+A `sign_in_as` helper drives the real (magic link) authentication flow; tests then exercise protected endpoints normally.
 
 ```ruby
 # test/test_helpers/session_test_helper.rb
@@ -612,8 +274,7 @@ module SessionTestHelper
     end
 
     assert_response :redirect, "Magic Link code should grant access"
-    cookie = cookies.get_cookie "session_token"
-    assert_not_nil cookie, "Expected session_token cookie"
+    assert_not_nil cookies.get_cookie("session_token"), "Expected session_token cookie"
   end
 
   def logout_and_sign_in_as(identity)
@@ -621,13 +282,7 @@ module SessionTestHelper
     sign_in_as identity
   end
 
-  def sign_out
-    untenanted do
-      delete session_path
-    end
-    assert_not cookies[:session_token].present?
-  end
-
+  # Temporarily drop the account URL prefix
   def untenanted(&block)
     original_script_name = integration_session.default_url_options[:script_name]
     integration_session.default_url_options[:script_name] = ""
@@ -638,124 +293,28 @@ module SessionTestHelper
 end
 ```
 
+---
+
+## 8. Test Assertions and Helpers
+
+Put domain-specific assertion helpers in `test/test_helpers/` and include them in `test_helper.rb`. Use `assert_difference` with lambdas (and hashes for multiple counts), `assert_turbo_stream` for Turbo responses.
+
 ```ruby
-# test/controllers/cards_controller_test.rb
-class CardsControllerTest < ActionDispatch::IntegrationTest
-  setup do
-    sign_in_as :kevin
-  end
-
-  test "index" do
-    get cards_path
-    assert_response :success
-  end
-
-  test "admins can delete any card" do
-    assert_difference -> { Card.count }, -1 do
-      delete card_path(cards(:logo))
-    end
-    assert_redirected_to boards(:writebook)
-  end
-
-  test "non-admins cannot delete cards they did not create" do
-    logout_and_sign_in_as :jz
-
-    assert_no_difference -> { Card.count } do
-      delete card_path(cards(:logo))
-    end
-    assert_response :forbidden
+test "assignment toggling" do
+  assert_difference({
+    -> { cards(:logo).assignees.count } => -1,
+    -> { Event.count } => +1
+  }) do
+    cards(:logo).toggle_assignment users(:kevin)
   end
 end
 ```
-
-**Source:** `test/test_helpers/session_test_helper.rb`, `test/controllers/cards_controller_test.rb`
-
-**Key Points:**
-- `sign_in_as :name` accepts fixture symbols, User objects, or Identity objects
-- Use `logout_and_sign_in_as` to switch users mid-test
-- The `untenanted` helper temporarily removes the account URL prefix
-- Authentication uses the passwordless magic link flow
 
 ---
 
-## 10. Test Assertions and Helpers
+## 9. i18n-Customised Errors & Editors You Can't `fill_in`
 
-**Problem:** Common test patterns need reusable assertion helpers.
-
-**Solution:** Create test helpers for domain-specific assertions.
-
-**Example:**
-
-```ruby
-# test/test_helpers/card_test_helper.rb
-module CardTestHelper
-  def assert_card_container_rerendered(card)
-    assert_turbo_stream action: :replace, target: dom_id(card, :card_container)
-  end
-end
-```
-
-```ruby
-# test/test_helpers/change_test_helper.rb
-module ChangeTestHelper
-  def capture_change(target)
-    before = target.call
-    yield
-    after = target.call
-    after - before
-  end
-end
-```
-
-```ruby
-# Usage in tests
-class CardTest < ActiveSupport::TestCase
-  test "assignment toggling" do
-    assert cards(:logo).assigned_to?(users(:kevin))
-
-    # Using Rails' built-in assert_difference with multiple counts
-    assert_difference({
-      -> { cards(:logo).assignees.count } => -1,
-      -> { Event.count } => +1
-    }) do
-      cards(:logo).toggle_assignment users(:kevin)
-    end
-
-    assert_not cards(:logo).reload.assigned_to?(users(:kevin))
-  end
-
-  test "tag toggling" do
-    assert_difference "cards(:logo).taggings.count", -1 do
-      cards(:logo).toggle_tag_with tags(:web).title
-    end
-
-    assert_difference %w[ cards(:logo).taggings.count Tag.count ], +1 do
-      cards(:logo).toggle_tag_with "prioritized"
-    end
-  end
-end
-```
-
-**Source:** `test/test_helpers/card_test_helper.rb`, `test/test_helpers/change_test_helper.rb`, `test/models/card_test.rb`
-
-**Key Points:**
-- Create domain-specific helpers in `test/test_helpers/`
-- Include helpers in `test_helper.rb` to make them available globally
-- Use `assert_difference` with lambdas for counting changes
-- Use `assert_turbo_stream` for Turbo Stream response assertions
-
----
-
-## 11. i18n-Customised Errors & Editors You Can't `fill_in`
-
-**Problem:** Two recurring test traps — asserting on Rails' default validation strings when the
-app has customised them, and trying to drive a rich-text/contenteditable field with `fill_in`.
-
-**Solution:** Assert on `errors[:field].present?` (or the *configured* message), and cover
-forms whose editor overwrites its value on submit with **request-level** tests instead of a
-browser submit.
-
-**Example:**
+Two recurring test traps — asserting on Rails' default validation strings when the app has customised them, and trying to drive a rich-text/contenteditable field with `fill_in`.
 
 ```ruby
 # Validation messages are often i18n-customised (e.g. presence reads
@@ -765,7 +324,6 @@ test "title is required" do
   opportunity = Opportunity.new(title: nil)
   assert_not opportunity.valid?
   assert opportunity.errors[:title].present?              # robust
-  # assert_includes opportunity.errors[:title], "must not be blank."  # if asserting text
 end
 
 # A markdown/contenteditable editor syncs its hidden textarea ON SUBMIT,
@@ -784,29 +342,22 @@ end
 ```
 
 **Key Points:**
-- Assert `errors[:field].present?` rather than Rails' default message string — apps override messages via i18n.
-- Editors that sync a contenteditable into a hidden field **on submit** can't be driven by `fill_in` / Playwright `fill`; the injected value is overwritten. Use request-level (`post :create`) tests for the persistence path.
-- This complements the browser-side `fill_in_lexxy` `execute_script` workaround (Section 4) — that handles editors that read their value live; request tests are the fallback when the value is overwritten only at submit time.
+- Editors that sync on submit can't be driven by `fill_in`; the injected value is overwritten. Use request-level tests for the persistence path. This complements the `fill_in_lexxy` `execute_script` workaround (Pattern 3), which handles editors that read their value live.
 - Other Stimulus interactions on the same form (nested-form Add/Remove, toggles) still verify fine in system tests.
 - If an app translates admin index/search-form headers via simple_form labels, a new column used as a header or search field needs a `simple_form.labels.defaults.<key>` entry, or the page raises "Translation missing".
 
 ---
 
-## 12. Background Jobs in Tests: `:test` Adapter, Not `:inline`
+## 10. Background Jobs in Tests: `:test` Adapter, Not `:inline`
 
-**Problem:** `config.active_job.queue_adapter = :inline` in the test environment (or `Resque.inline = true`) executes every enqueued job synchronously, everywhere. Every test implicitly runs background work it never asked for: state changes appear "by magic" (hard to reason about failures), and the suite burns time on side-effects no assertion needs.
+`config.active_job.queue_adapter = :inline` in the test environment (or `Resque.inline = true`) executes every enqueued job synchronously, everywhere. Every test implicitly runs background work it never asked for: state changes appear "by magic", and the suite burns time on side-effects no assertion needs. Keep the `:test` adapter (the Rails default) and drain jobs *explicitly*, only in tests that need the job's effects.
 
-**Solution:** Use the `:test` adapter (the Rails default) and drain jobs *explicitly*, only in tests that need the job's effects — as part of the Arrange or Act phase of arrange/act/assert.
-
-**Example:**
 ```ruby
 # ❌ Bad: config/environments/test.rb
 config.active_job.queue_adapter = :inline   # every test runs every job
 
 # ✅ Good: keep the :test adapter, drain explicitly
 class ExportTest < ActiveSupport::TestCase
-  # ActiveJob::TestHelper is already included in test_helper.rb (Pattern 1)
-
   test "completed export attaches a file" do
     export = accounts("37s").exports.create!
 
@@ -826,22 +377,15 @@ end
 ```
 
 **Key Points:**
-- Most tests should only assert the job was *enqueued* (`assert_enqueued_with`, `assert_enqueued_jobs`) — that's the unit boundary; the job's behaviour gets its own test.
+- Most tests should only assert the job was *enqueued* — that's the unit boundary; the job's behaviour gets its own test.
 - `perform_enqueued_jobs(only: SomeJob)` scopes draining when setup enqueues unrelated jobs.
-- If you inherit a suite built on `:inline`, migrate gradually: switch the adapter, then fix tests that relied on implicit execution by adding explicit drains.
+- Inheriting a suite built on `:inline`? Migrate gradually: switch the adapter, then fix tests that relied on implicit execution by adding explicit drains.
 
 ---
 
-## 13. Mocking — Verify the Tools Exist Before Stubbing
+## 11. Mocking — Verify the Tools Exist Before Stubbing
 
-**Problem:** Writing `.stubs`/`.stub` and getting `NoMethodError: undefined method 'stubs'` —
-the suite has no mocking library.
-
-**Solution:** Check `test_helper.rb` and the Gemfile before reaching for mocks. **minitest 6
-dropped the bundled `minitest/mock`**, and many suites never added mocha, so neither
-`Object#stub` nor `.stubs` can be assumed (the §1 example requires `mocha/minitest` —
-verify it's actually there). Prefer stubbing external services by toggling their
-configuration over introducing a mocking library:
+Writing `.stubs`/`.stub` and getting `NoMethodError: undefined method 'stubs'` means the suite has no mocking library. **minitest 6 dropped the bundled `minitest/mock`**, and many suites never added mocha, so neither `Object#stub` nor `.stubs` can be assumed (the Pattern 1 example requires `mocha/minitest` — verify it's actually there). Prefer stubbing external services by toggling their configuration over introducing a mocking library:
 
 ```ruby
 # Force a reCAPTCHA failure without any mocking library: drop "test" from the
@@ -857,10 +401,7 @@ ensure
 end
 ```
 
-**Key Points:**
-- Don't write `.stubs`/`.stub` until you've confirmed mocha (or `minitest/mock`) is in the bundle.
-- Config toggles exercise the real code path; mocks only assert you called what you stubbed.
-- For HTTP, use VCR/WebMock (§5) rather than stubbing the client class.
+Config toggles exercise the real code path; mocks only assert you called what you stubbed. For HTTP, use VCR/WebMock (Pattern 4) rather than stubbing the client class.
 
 ---
 
@@ -869,28 +410,23 @@ end
 | Command | Description |
 |---------|-------------|
 | `bin/rails test` | Run all unit/integration tests |
-| `bin/rails test test/file.rb` | Run single test file |
 | `bin/rails test test/file.rb:42` | Run test at specific line |
 | `bin/rails test:system` | Run system tests |
 | `bin/ci` | Run full CI pipeline |
-| `PARALLEL_WORKERS=1 bin/rails test` | Disable parallel execution |
+| `PARALLEL_WORKERS=1 bin/rails test` | Disable parallel execution (debugging, system tests) |
 | `SYSTEM_TESTS_BROWSER=true bin/rails test:system` | See browser during tests |
 | `VCR_RECORD=true bin/rails test` | Record new VCR cassettes |
 
 | Pattern | When to Use |
 |---------|-------------|
-| `fixtures :all` | Load all fixtures automatically |
-| `ActiveRecord::FixtureSet.identify("name", :uuid)` | Generate deterministic UUID |
-| `account: 37s_uuid` | Reference fixture with UUID |
+| `ActiveRecord::FixtureSet.identify("name", :uuid)` | Deterministic UUID fixture id |
+| `account: 37s_uuid` | Reference a UUID fixture |
+| `creator_id: 1` (not `creator: admin`) | Reference a fixture that sets an explicit `id:` |
 | `sign_in_as :user` | Authenticate in integration tests |
-| `Current.account = accounts("37s")` | Set tenant context |
 | `Current.session = sessions(:david)` | Set user session context |
 | `include VcrTestHelper` | Record external HTTP calls |
-| `assert_difference` | Verify count changes |
-| `assert_turbo_stream` | Verify Turbo responses |
 | `assert errors[:field].present?` | Assert validation failure without the literal i18n message |
 | `post create_path, params: {...}` | Test forms whose editor can't be `fill_in`-ed |
 | `perform_enqueued_jobs { ... }` | Explicitly run jobs (never `:inline` adapter) |
 | `assert_enqueued_with job: SomeJob` | Assert enqueueing without running the job |
-| `creator_id: 1` (not `creator: admin`) | Reference a fixture that sets an explicit `id:` |
 | Config toggle (not `.stubs`) | Stub external services when the suite has no mocking library |

@@ -187,7 +187,7 @@ grep -rn "\.count\b" app/models/ app/controllers/ app/helpers/
 grep -rn "\.offset\|paginate\|page(" app/models/ app/controllers/
 ```
 
-**Fix:** Use keyset/cursor pagination. In this project, `geared_pagination` is already available:
+**Fix:** Use keyset/cursor pagination, e.g. with `geared_pagination` (see [[rails-performance]]):
 ```ruby
 @page = set_page_and_extract_portion_from(scope, per_page: [15, 30, 50])
 ```

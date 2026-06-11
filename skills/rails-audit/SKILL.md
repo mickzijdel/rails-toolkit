@@ -59,11 +59,7 @@ grep -nE 'group\s+:' Gemfile                             # dev/test gems grouped
 ```
 
 - **`source 'http://...'`** (not HTTPS) → 🔴.
-- **No supply-chain cooldown** → 🟡. A compromised gem account can ship a malicious release that any `bundle install` in the following minutes resolves straight to. Bundler's `cooldown` refuses to resolve a version until it has been public for at least N days, leaving time for the release to be vetted. Recommend ~4 days, on the source line:
-  ```ruby
-  source "https://rubygems.org", cooldown: 4
-  ```
-  (or `bundle config set cooldown 4`). Requires a recent Bundler. See the [RubyGems announcement](https://blog.rubygems.org/2026/06/03/cooldown-let-new-gems-be-vetted.html).
+- **No supply-chain cooldown** → 🟡. Recommend `source "https://rubygems.org", cooldown: 4` so freshly-hijacked gem releases can't resolve for 4 days. Rationale and scope rules: [[rails-project-setup]].
 - **Dev/test gems not grouped** → 🟡. Wrap development- and test-only gems (rspec-rails, capybara, debug, factory_bot, brakeman, rubocop) in `group :development, :test do … end`, so a production deploy run with `BUNDLE_WITHOUT=development:test` (or `bundle install --without development test`) neither installs nor loads them: smaller image, faster boot, smaller attack surface.
 - **Undocumented/obscure gems** → 🟢 add a one-line comment for the next maintainer.
 

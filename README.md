@@ -15,6 +15,9 @@ gotchas skill, and a Rails-detection session hook.
 - **rails-audit** — top-level health-check of an existing/inherited app (version pinning, bundler-audit/brakeman, exposed secrets, seeds, tech debt) that orchestrates the deep-dive skills and emits a severity-ranked report.
 - **rails-multi-tenancy**, **rails-security**, **rails-project-setup**.
 
+Many code examples are extracted from 37signals' Fizzy codebase and STYLE.md; they
+illustrate the patterns and are not files in this repository or yours.
+
 ### Hook
 - **SessionStart** (`bin/rails-detect-hook`): when a session opens in a Rails project (a `Gemfile` that requires the `rails` gem), injects a reminder to consult `rails-toolkit:rails-core` and the other `rails-toolkit:rails-*` skills.
 

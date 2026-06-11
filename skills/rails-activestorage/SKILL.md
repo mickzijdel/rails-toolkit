@@ -5,30 +5,12 @@ description: Use when handling file uploads, variants, direct uploads, and rich 
 
 # Rails ActiveStorage Patterns
 
-## When to Use
+## 1. Attachments Concern — Rich Text Introspection
 
-- Adding file uploads to models
-- Creating image variants (thumbnails, resizing)
-- Working with rich text attachments (ActionText embeds)
-- Managing file storage across environments
-- Implementing direct uploads for large files
-- Tracking storage usage for billing/quotas
-- Preventing N+1 queries with attachments
-
----
-
-## 1. Attachments Concern - Rich Text Introspection
-
-### Problem
-You need to access all attachments from a model's rich text content and identify remote images/videos embedded in ActionText.
-
-### Solution
-Use the `Attachments` concern which provides methods to introspect rich text embeds and identify remote media.
-
-### Example
-From `/app/models/concerns/attachments.rb`:
+Access all attachments from a model's rich text content and identify remote images/videos embedded in ActionText:
 
 ```ruby
+# app/models/concerns/attachments.rb
 module Attachments
   extend ActiveSupport::Concern
 
@@ -37,11 +19,9 @@ module Attachments
   #
   # Patched into ActionText::RichText in config/initializers/action_text.rb
   VARIANTS = {
-    # vipsthumbnail used to create sized image variants has a intent setting to manage colors during
-    # resize. By setting an invalid intent value the gif-incompatible intent filtering is skipped and
-    # the gif can be rendered with all its frame intact.
-    #
-    # Only `n` is accepted as an override, using the full parameter name `intent` doesn't work.
+    # The `n: -1` loader option bypasses GIF-incompatible intent filtering in
+    # vipsthumbnail, preserving all frames in animated GIFs. Only `n` is accepted
+    # as an override; the full parameter name `intent` doesn't work.
     small: { loader: { n: -1 }, resize_to_limit: [ 800, 600 ] },
     large: { loader: { n: -1 }, resize_to_limit: [ 1024, 768 ] }
   }
@@ -58,16 +38,8 @@ module Attachments
     @remote_images ||= rich_text_record&.body&.attachables&.grep(ActionText::Attachables::RemoteImage) || []
   end
 
-  def has_remote_images?
-    remote_images.any?
-  end
-
   def remote_videos
     @remote_videos ||= rich_text_record&.body&.attachables&.grep(ActionText::Attachables::RemoteVideo) || []
-  end
-
-  def has_remote_videos?
-    remote_videos.any?
   end
 
   private
@@ -80,47 +52,21 @@ module Attachments
 end
 ```
 
-**Usage in models:**
-
 ```ruby
 class Card < ApplicationRecord
   include Attachments
   has_rich_text :description
 end
-
-class Comment < ApplicationRecord
-  include Attachments
-  has_rich_text :body
-end
 ```
 
 ---
 
-## 2. Variant Definitions with GIF Support
+## 2. Registering Variants on ActionText Embeds
 
-### Problem
-Image variants break animated GIFs because libvips' thumbnail function applies color intent filtering that's incompatible with GIF frames.
-
-### Solution
-Use the `loader: { n: -1 }` option to skip intent filtering and preserve all GIF frames during resizing.
-
-### Example
-From `/app/models/concerns/attachments.rb`:
+Wire the `VARIANTS` above onto every rich-text embed by overriding the `:embeds` association:
 
 ```ruby
-VARIANTS = {
-  # The `n: -1` loader option bypasses GIF-incompatible intent filtering
-  # This preserves all frames in animated GIFs
-  small: { loader: { n: -1 }, resize_to_limit: [ 800, 600 ] },
-  large: { loader: { n: -1 }, resize_to_limit: [ 1024, 768 ] }
-}
-```
-
-**Registering variants on ActionText embeds:**
-
-From `/config/initializers/action_text.rb`:
-
-```ruby
+# config/initializers/action_text.rb
 module ActionText
   module Extensions
     module RichText
@@ -143,51 +89,18 @@ ActiveSupport.on_load(:action_text_rich_text) do
 end
 ```
 
-**Key insight:** Using `process: :immediately` avoids read replica issues where lazy variant processing would attempt writes on read replicas.
+`process: :immediately` matters: lazy variant processing attempts writes, which raises on read replicas.
 
 ---
 
 ## 3. Storage Tracking for Quotas
 
-### Problem
-You need to track storage usage per account/board for billing, quotas, or analytics without N+1 queries.
+Track storage usage per account/board for billing or quotas with a ledger: record attach/detach events via attachment callbacks, materialize totals asynchronously.
 
-### Solution
-Use the `Storage::Tracked` concern with a ledger-based approach that records attach/detach events and materializes totals asynchronously.
-
-### Example
-From `/app/models/concerns/storage/tracked.rb`:
+Tracked models include a `Storage::Tracked` concern that defines the trackable-record API the callbacks below rely on: `storage_tracked_record` (returns `self`) and `board_for_storage_tracking` (returns `board`; override in models where the board is derived differently).
 
 ```ruby
-module Storage::Tracked
-  extend ActiveSupport::Concern
-
-  included do
-    before_update :track_board_transfer, if: :board_transfer?
-  end
-
-  # Return self as the trackable record for storage entries
-  def storage_tracked_record
-    self
-  end
-
-  # Override in models where board is determined differently
-  def board_for_storage_tracking
-    board
-  end
-
-  # Total bytes for all attachments on this record
-  def storage_bytes
-    attachments_for_storage.sum { |a| a.blob.byte_size }
-  end
-end
-```
-
-**Attachment tracking hooks:**
-
-From `/app/models/storage/attachment_tracking.rb`:
-
-```ruby
+# app/models/storage/attachment_tracking.rb
 module Storage::AttachmentTracking
   extend ActiveSupport::Concern
 
@@ -210,13 +123,8 @@ module Storage::AttachmentTracking
         operation: "attach"
     end
 end
-```
 
-**Registering the tracking module:**
-
-From `/config/initializers/active_storage.rb`:
-
-```ruby
+# config/initializers/active_storage.rb
 ActiveSupport.on_load(:active_storage_attachment) do
   include Storage::AttachmentTracking
 end
@@ -226,43 +134,15 @@ end
 
 ## 4. N+1 Prevention with Attachment Preloading
 
-### Problem
-Loading attachments for multiple records causes N+1 queries.
-
-### Solution
-Preload attachment associations using Rails' built-in `*_attachment` associations and `with_rich_text_*_and_embeds` scopes.
-
-### Example
-From `/app/models/card.rb`:
+Rails generates preloadable associations for every attachment; use the right names:
 
 ```ruby
-class Card < ApplicationRecord
-  has_one_attached :image
-  has_rich_text :description
+Model.preload(:image_attachment)               # has_one_attached
+Model.preload(:documents_attachments)          # has_many_attached
+Model.preload(image_attachment: :blob)         # with blob data
+Model.with_rich_text_description_and_embeds    # ActionText with embedded files
 
-  # Preload avatar attachments for associated users
-  scope :with_users, -> {
-    preload(
-      creator: [ :avatar_attachment, :account ],
-      assignees: [ :avatar_attachment, :account ]
-    )
-  }
-
-  # Comprehensive preloading for card lists
-  scope :preloaded, -> {
-    with_users.preload(
-      :column, :tags, :steps, :closure, :goldness, :activity_spike,
-      :image_attachment,
-      board: [ :entropy, :columns ],
-      not_now: [ :user ]
-    ).with_rich_text_description_and_embeds
-  }
-end
-```
-
-From `/app/models/user/avatar.rb`:
-
-```ruby
+# Bundle into a named scope alongside the attachment declaration
 module User::Avatar
   included do
     has_one_attached :avatar do |attachable|
@@ -274,23 +154,13 @@ module User::Avatar
 end
 ```
 
-**Key patterns:**
-- Use `*_attachment` (singular) for `has_one_attached`
-- Use `*_attachments` (plural) for `has_many_attached`
-- Use `with_rich_text_*_and_embeds` for ActionText with embedded files
+Fold these into the model's `preloaded` scope — see [[rails-performance]].
 
 ---
 
 ## 5. Avatar Upload with Validation
 
-### Problem
-You need to handle user avatar uploads with content type and dimension validation.
-
-### Solution
-Create a concern with allowed content types, dimension limits, and a thumbnail variant.
-
-### Example
-From `/app/models/user/avatar.rb`:
+Content-type and dimension validation for user uploads:
 
 ```ruby
 module User::Avatar
@@ -303,8 +173,6 @@ module User::Avatar
     has_one_attached :avatar do |attachable|
       attachable.variant :thumb, resize_to_fill: [ 256, 256 ], process: :immediately
     end
-
-    scope :with_avatars, -> { preload(:account, :avatar_attachment) }
 
     validate :avatar_content_type_allowed, :avatar_dimensions_allowed, if: :avatar_attached?
   end
@@ -345,27 +213,16 @@ end
 
 ## 6. Service Configuration (Local vs S3)
 
-### Problem
-You need different storage backends for development (local disk) vs production (S3-compatible).
-
-### Solution
-Configure multiple services in `storage.yml` and select via environment variable.
-
-### Example
-From `/config/storage.oss.yml`:
+Configure multiple services in `storage.yml`, select via environment variable:
 
 ```yaml
-test:
-  service: Disk
-  root: <%= Rails.root.join("tmp/storage/files") %>
-
 local:
   service: Disk
   root: <%= Rails.root.join("storage", Rails.env, "files") %>
 
 devminio:
   service: S3
-  bucket: fizzy-dev-activestorage
+  bucket: app-dev-activestorage
   endpoint: "http://minio.localhost:39000"
   force_path_style: true
   request_checksum_calculation: when_required
@@ -377,56 +234,34 @@ devminio:
 s3:
   service: S3
   access_key_id: <%= ENV["S3_ACCESS_KEY_ID"] %>
-  bucket: <%= ENV["S3_BUCKET"] || "fizzy-#{Rails.env}-activestorage" %>
+  secret_access_key: <%= ENV["S3_SECRET_ACCESS_KEY"] %>
+  bucket: <%= ENV["S3_BUCKET"] %>
   endpoint: <%= ENV["S3_ENDPOINT"] %>
   force_path_style: <%= ENV["S3_FORCE_PATH_STYLE"] == "true" %>
   region: <%= ENV.fetch("S3_REGION", "us-east-1") %>
-  request_checksum_calculation: <%= ENV.fetch("S3_REQUEST_CHECKSUM_CALCULATION", "when_supported") %>
-  response_checksum_validation: <%= ENV.fetch("S3_RESPONSE_CHECKSUM_VALIDATION", "when_supported") %>
-  secret_access_key: <%= ENV["S3_SECRET_ACCESS_KEY"] %>
 ```
-
-**Environment-based service selection:**
-
-From `/config/environments/production.rb`:
 
 ```ruby
-# Select Active Storage service via env var; default to local disk.
-if config.active_storage.service.blank?
-  config.active_storage.service = ENV.fetch("ACTIVE_STORAGE_SERVICE", "local").to_sym
-end
+# config/environments/production.rb
+config.active_storage.service = ENV.fetch("ACTIVE_STORAGE_SERVICE", "local").to_sym
 ```
 
-**Key S3 options:**
-- `force_path_style: true` - Required for MinIO and some S3-compatible services
-- `request_checksum_calculation: when_required` - For FlashBlade compatibility
-- `endpoint` - Custom endpoint for non-AWS S3-compatible services
+**Key S3 options:** `force_path_style: true` is required for MinIO and some S3-compatible services; `request_checksum_calculation: when_required` for FlashBlade compatibility; `endpoint` for any non-AWS service.
 
 ---
 
 ## 7. Direct Upload with Extended Expiry
 
-### Problem
-Large file uploads through Cloudflare (or similar proxies) fail because the upload URL expires before the file is fully buffered.
-
-### Solution
-Extend the direct upload URL expiry time to accommodate slow uploads.
-
-### Example
-From `/lib/rails_ext/active_storage_blob_service_url_for_direct_upload_expiry.rb`:
+Large uploads through Cloudflare (or similar proxies) fail because the proxy only forwards the upload once fully buffered — long after the default URL expiry.
 
 ```ruby
+# lib/rails_ext/active_storage_blob_service_url_for_direct_upload_expiry.rb
 module ActiveStorage
   mattr_accessor :service_urls_for_direct_uploads_expire_in, default: 48.hours
 end
 
 module ActiveStorageBlobServiceUrlForDirectUploadExpiry
-  # Override default expires_in to accommodate long upload URL expiry
-  # without having to lengthen download URL expiry.
-  #
-  # Accounts for Cloudflare only proxying slow client uploads once they're
-  # fully buffered, long after the URL expired.
-  #
+  # Lengthens direct-upload URL expiry without touching download URL expiry.
   # 48 hours covers a 10GB upload at 0.5Mbps.
   def service_url_for_direct_upload(expires_in: ActiveStorage.service_urls_for_direct_uploads_expire_in)
     super
@@ -442,16 +277,10 @@ end
 
 ## 8. Direct Upload Authentication
 
-### Problem
-Direct uploads need authentication that works for both browser sessions and API tokens.
-
-### Solution
-Extend the DirectUploadsController with authentication that accepts both session-based auth and bearer tokens.
-
-### Example
-From `/config/initializers/active_storage.rb`:
+Extend `DirectUploadsController` so direct uploads accept both browser sessions and bearer tokens:
 
 ```ruby
+# config/initializers/active_storage.rb
 module ActiveStorageDirectUploadsControllerExtensions
   extend ActiveSupport::Concern
 
@@ -467,51 +296,19 @@ Rails.application.config.to_prepare do
 end
 ```
 
-**Test example:**
-
-From `/test/controllers/active_storage/direct_uploads_controller_test.rb`:
-
-```ruby
-class ActiveStorage::DirectUploadsControllerTest < ActionDispatch::IntegrationTest
-  test "create with valid access token" do
-    post rails_direct_uploads_path,
-      params: {
-        blob: {
-          filename: "screenshot.png",
-          byte_size: 12345,
-          checksum: "GQ5SqLsM7ylnji0Wgd9wNC==",
-          content_type: "image/png"
-        }
-      },
-      headers: { "Authorization" => "Bearer #{access_token.token}" },
-      as: :json
-
-    assert_response :success
-    assert_includes response.parsed_body.keys, "direct_upload"
-  end
-end
-```
-
 ---
 
 ## 9. Multi-Tenant Blob Isolation
 
-### Problem
-In a multi-tenant app, blobs must be isolated per account to prevent cross-tenant data access.
-
-### Solution
-Validate that blob's account_id matches the record's account_id on attachment.
-
-### Example
-From `/config/initializers/active_storage_no_reuse.rb`:
+Validate on attach that the blob's account matches the record's account, and that tracked blobs aren't reused across records:
 
 ```ruby
+# config/initializers/active_storage_no_reuse.rb
 ActiveSupport.on_load(:active_storage_attachment) do
   validate :blob_account_matches_record, on: :create
   validate :no_tracked_blob_reuse, on: :create
 
   private
-    # Multi-tenant safety: blob must belong to same account as record
     def blob_account_matches_record
       return unless record&.try(:account).present?
       return if whitelisted_for_cross_account?
@@ -521,7 +318,6 @@ ActiveSupport.on_load(:active_storage_attachment) do
       end
     end
 
-    # Ledger integrity: blob can only have one tracked attachment
     def no_tracked_blob_reuse
       tracked_record = record&.try(:storage_tracked_record)
       return unless tracked_record.present?
@@ -544,14 +340,7 @@ end
 
 ## 10. Exporting Attachments from Rich Text
 
-### Problem
-You need to export cards with all their attachments, including those embedded in rich text content.
-
-### Solution
-Iterate through rich text attachables and handle different attachment types (blobs, remote images).
-
-### Example
-From `/app/models/card/exportable.rb`:
+Render rich text for export by walking its attachables and handling each type:
 
 ```ruby
 module Card::Exportable
@@ -599,36 +388,12 @@ end
 ### Attachment Declarations
 
 ```ruby
-# Single file
 has_one_attached :image
 has_one_attached :avatar do |attachable|
   attachable.variant :thumb, resize_to_fill: [256, 256]
 end
-
-# Multiple files
 has_many_attached :documents
-
-# Rich text with embeds
 has_rich_text :description
-```
-
-### Preloading Patterns
-
-```ruby
-# Single attachment
-Model.preload(:image_attachment)
-
-# Multiple attachments
-Model.preload(:documents_attachments)
-
-# With blob data
-Model.preload(image_attachment: :blob)
-
-# Rich text with embeds
-Model.with_rich_text_description_and_embeds
-
-# Complex associations
-Model.preload(user: [:avatar_attachment, :account])
 ```
 
 ### Variant Options
@@ -638,13 +403,14 @@ Model.preload(user: [:avatar_attachment, :account])
   resize_to_limit: [800, 600],     # Fit within dimensions
   resize_to_fill: [256, 256],      # Crop to exact dimensions
   loader: { n: -1 },               # Preserve GIF animation
-  process: :immediately            # Process on upload (not lazy)
+  process: :immediately            # Process on upload (not lazy; required on read replicas)
 }
 ```
 
+### Preloading
+
+See Pattern 4: `:image_attachment` / `:documents_attachments` / `with_rich_text_*_and_embeds`.
+
 ### Storage Service Selection
 
-```bash
-# Environment variable
-ACTIVE_STORAGE_SERVICE=s3  # or local, devminio
-```
+`ACTIVE_STORAGE_SERVICE=s3` (or `local`, `devminio`).
