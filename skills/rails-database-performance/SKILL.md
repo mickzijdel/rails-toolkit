@@ -212,6 +212,44 @@ Look for: `Sort Method: external merge  Disk` or `Seq Scan` — these indicate m
 
 ---
 
+### 12. Unbounded Append-Only Tables
+
+Audit/versioning/logging tables grow forever by design and quietly become the largest tables in the database — slowing backups, bloating the buffer pool (hurting cache hit rates for the data that matters), and dragging out migrations.
+
+```bash
+grep -nE 'create_table "(versions|audits|.*_logs|.*_events|page_views|ahoy_)' db/schema.rb
+grep -rn "paper_trail\|has_paper_trail\|audited" Gemfile app/models/ | head
+```
+
+For any hit, check whether anything bounds growth (cron/recurring job deleting old rows).
+
+**Fix (in order of preference):**
+1. **Retention policy** — a recurring job that deletes rows older than the period anyone actually looks at:
+   ```ruby
+   PaperTrail::Version.where("created_at < ?", 1.year.ago).in_batches.delete_all
+   ```
+2. **Move to a separate database** via Rails multi-db. Audit data is a good fit: read rarely (admin-only), no performance-sensitive JOINs against it, and "best-effort" consistency is acceptable. Shrinks the primary, speeds up backups and upgrades.
+
+---
+
+## Capacity Metrics & Monitoring
+
+Two numbers tell you whether the database is the bottleneck before users do:
+
+- **Active (non-idle) connections to the primary** — healthy target is **≤ ~50% of the database's CPU count**. Sustained levels above that mean queries are queueing for CPU; more app servers will make it worse, not better.
+- **Per-controller p95 response time** — aim for **< 1 second** on the top-traffic controllers. The overall average hides the handful of endpoints doing all the damage; rank controllers by p95 × throughput.
+
+Install a database monitoring tool — index suggestions, captured EXPLAIN plans, and connection/CPU history beat re-running `EXPLAIN ANALYZE` by hand:
+
+| Tool | Notes |
+|---|---|
+| pghero | Free, Rails-friendly, Postgres |
+| pganalyze | Paid, Postgres, the most complete |
+| Percona PMM | Open source, the strong MySQL option |
+| Datadog DBM | Paid add-on if already on Datadog |
+
+---
+
 ## Generating Migrations
 
 For each group of related indexes, generate a descriptive migration:
@@ -238,6 +276,7 @@ Keep each migration focused. Do not combine unrelated tables in one migration.
 | `position`, `sort_order` | Single index |
 | `email`, `username` (login) | Unique index |
 | `*_token` (auth tokens) | Unique index |
+| `versions`/audit/log tables | Retention policy or separate DB (no index fixes growth) |
 
 ## Common Mistakes
 

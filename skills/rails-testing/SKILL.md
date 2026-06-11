@@ -784,6 +784,46 @@ end
 
 ---
 
+## 12. Background Jobs in Tests: `:test` Adapter, Not `:inline`
+
+**Problem:** `config.active_job.queue_adapter = :inline` in the test environment (or `Resque.inline = true`) executes every enqueued job synchronously, everywhere. Every test implicitly runs background work it never asked for: state changes appear "by magic" (hard to reason about failures), and the suite burns time on side-effects no assertion needs.
+
+**Solution:** Use the `:test` adapter (the Rails default) and drain jobs *explicitly*, only in tests that need the job's effects — as part of the Arrange or Act phase of arrange/act/assert.
+
+**Example:**
+```ruby
+# ❌ Bad: config/environments/test.rb
+config.active_job.queue_adapter = :inline   # every test runs every job
+
+# ✅ Good: keep the :test adapter, drain explicitly
+class ExportTest < ActiveSupport::TestCase
+  # ActiveJob::TestHelper is already included in test_helper.rb (Pattern 1)
+
+  test "completed export attaches a file" do
+    export = accounts("37s").exports.create!
+
+    perform_enqueued_jobs do        # Act: run the job this test is about
+      export.build_later
+    end
+
+    assert export.reload.file.attached?
+  end
+
+  test "creating an export enqueues the build" do
+    assert_enqueued_with job: ExportAccountDataJob do
+      accounts("37s").exports.create!.build_later
+    end
+  end
+end
+```
+
+**Key Points:**
+- Most tests should only assert the job was *enqueued* (`assert_enqueued_with`, `assert_enqueued_jobs`) — that's the unit boundary; the job's behaviour gets its own test.
+- `perform_enqueued_jobs(only: SomeJob)` scopes draining when setup enqueues unrelated jobs.
+- If you inherit a suite built on `:inline`, migrate gradually: switch the adapter, then fix tests that relied on implicit execution by adding explicit drains.
+
+---
+
 ## Quick Reference
 
 | Command | Description |
@@ -810,3 +850,5 @@ end
 | `assert_turbo_stream` | Verify Turbo responses |
 | `assert errors[:field].present?` | Assert validation failure without the literal i18n message |
 | `post create_path, params: {...}` | Test forms whose editor can't be `fill_in`-ed |
+| `perform_enqueued_jobs { ... }` | Explicitly run jobs (never `:inline` adapter) |
+| `assert_enqueued_with job: SomeJob` | Assert enqueueing without running the job |

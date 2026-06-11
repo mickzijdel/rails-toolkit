@@ -557,6 +557,15 @@ Cross-Site Request Forgery (CSRF) attacks trick authenticated users into submitt
 ### Solution
 Use the `Sec-Fetch-Site` header (available in modern browsers) for origin verification, falling back to standard CSRF for older browsers.
 
+**On Rails 8.2+, use the built-in strategy instead of the custom concern below:**
+```ruby
+# config/application.rb
+config.action_controller.forgery_protection_strategy = :header_or_legacy_token
+```
+This verifies `Sec-Fetch-Site` and falls back to the classic token for browsers that don't send it. Browser support floor: Chrome 76+ (2019), Edge 79+ (2020), Firefox 90+ (2021), Safari 16.4+ (2023). Header-based CSRF also removes the need for token plumbing that fights page caching — `csrf_meta_tags` in cached layouts, token-refresh JavaScript, and "token dispenser" endpoints can all go.
+
+On older Rails, implement it yourself:
+
 ### Example
 
 **Custom Forgery Protection** (`app/controllers/concerns/request_forgery_protection.rb`):

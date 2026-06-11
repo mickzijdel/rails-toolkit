@@ -227,35 +227,31 @@ Use `command:` for simple class method calls, `class:` for job classes.
 
 ---
 
-## Pattern 5: Queue Configuration
+## Pattern 5: SLO-Named Queues
 
 ### Problem
-Different job types have different priorities and resource needs.
+Domain-named queues (`imports`, `exports`, `webhooks`, `backend`) multiply over time and answer none of the operational questions: how full is too full? When do we scale? When do we page someone?
 
 ### Solution
-Assign jobs to named queues based on their characteristics. Configure workers to process specific queues.
+Name queues after the latency promise they make — the maximum acceptable time a job sits in the queue. Every operational decision then falls out of comparing queue latency against the SLO in the queue's name. (Pattern from Nate Berkopec's *Sidekiq in Practice*, adopted at Gusto among others.)
 
 ### Example
 
-**Queue assignments in jobs**:
+**Queue assignments in jobs** — pick the queue by asking "how stale can this work be?":
 ```ruby
-# Default queue (no declaration needed)
+# User is waiting on this (e.g. notification fan-out)
 class NotifyRecipientsJob < ApplicationJob
-  def perform(notifiable)
-    notifiable.notify_recipients
-  end
+  queue_as :within_30_seconds
 end
 
-# Backend queue for heavier operations
+# User expects it "soon" (e.g. export ready by email)
 class ExportAccountDataJob < ApplicationJob
-  queue_as :backend
-  # ...
+  queue_as :within_5_minutes
 end
 
-# Webhooks queue for external HTTP calls
-class Webhook::DeliveryJob < ApplicationJob
-  queue_as :webhooks
-  # ...
+# Nobody is waiting (cleanup, rollups)
+class DeleteUnusedTagsJob < ApplicationJob
+  queue_as :within_1_hour
 end
 ```
 
@@ -266,11 +262,22 @@ default: &default
     - polling_interval: 1
       batch_size: 500
   workers:
-    - queues: [ "default", "solid_queue_recurring", "backend", "webhooks" ]
+    - queues: within_30_seconds
+      threads: 3
+      processes: 2
+      polling_interval: 0.1
+    - queues: [ within_5_minutes, within_1_hour, solid_queue_recurring ]
       threads: 3
       processes: <%= Integer(ENV.fetch("JOB_CONCURRENCY") { Concurrent.physical_processor_count }) %>
-      polling_interval: 0.1
+      polling_interval: 1
 ```
+
+Key points:
+- Ideally each worker pool listens to one queue (or one SLO tier), so a queue's latency is a true signal — not masked by workers borrowed from elsewhere.
+- Autoscaling and alerting become trivial: scale when queue latency approaches the SLO in its name; page when it exceeds it. No tribal knowledge required.
+- Developers choose queues correctly without asking anyone: the name says what it promises.
+- A handful of tiers is enough (`within_30_seconds`, `within_5_minutes`, `within_1_hour`). Resist re-introducing per-domain queues; that's how queue sprawl starts.
+- (Examples in other patterns here show domain names like `:backend`/`:webhooks` from their source app — prefer SLO names in new code.)
 
 ---
 
@@ -418,6 +425,40 @@ The `key` lambda determines the concurrency scope - jobs with the same key won't
 
 ---
 
+## Pattern 9: Generate Large Files in Jobs, Never in Controllers
+
+### Problem
+A controller that builds a multi-megabyte CSV/zip/export and ships it with `send_data` hurts twice: the whole file is assembled in web-process memory (permanent RSS bloat — Ruby rarely returns freed memory to the OS), and the Puma thread is held for the entire client download. A few slow downloaders can starve the app of threads.
+
+### Solution
+The controller only enqueues a job and responds immediately ("your file is being prepared"). The job generates the file and attaches it via Active Storage (or uploads to S3 directly); the user downloads from storage, not from the app.
+
+### Example
+
+```ruby
+# app/controllers/exports_controller.rb
+def create
+  export = Current.account.exports.create!
+  export.build_later
+  redirect_to export, notice: "Your export is being prepared."
+end
+
+def show
+  if @export.completed?
+    redirect_to rails_blob_url(@export.file, disposition: :attachment)
+  end  # else the view shows "still preparing" (and can poll via Turbo)
+end
+```
+
+The `Account::Export` model in Pattern 3 shows the job side: `build_later` enqueues, `build` generates the zip, attaches it, and emails a link.
+
+Key points:
+- `send_data` of generated content is the smell; `send_file`/`redirect_to` for storage-served blobs is the cure.
+- This applies to anything generated per-request and larger than a page of HTML: CSV admin exports, PDFs, zips.
+- Bonus: generation can be retried, throttled (Pattern 8), and survives deploys.
+
+---
+
 ## Quick Reference
 
 | Pattern | When to Use |
@@ -426,7 +467,8 @@ The `key` lambda determines the concurrency scope - jobs with the same key won't
 | Account Context | Automatic via FizzyActiveJobExtensions |
 | `*_later`/`*_now` | When model needs async operation |
 | Recurring Jobs | Scheduled tasks in config/recurring.yml |
-| Queue Assignment | Match job to appropriate queue |
+| SLO-Named Queues | Name queues by latency promise (`within_5_minutes`) |
 | Continuable | Long-running iterative jobs |
 | Error Concerns | Shared retry/rescue logic |
 | Concurrency Limits | Prevent duplicate execution |
+| Files via Jobs | Never `send_data` generated files from controllers |

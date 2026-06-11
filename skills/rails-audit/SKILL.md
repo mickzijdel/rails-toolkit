@@ -167,8 +167,22 @@ grep -rnE '\.(each|map)\b' app/views/ app/controllers/ 2>/dev/null | head -20   
 grep -rnE '\.includes\(|\.preload\(|\.eager_load\(' app/ 2>/dev/null | wc -l      # is eager loading used at all?
 ```
 
-- Views/controllers iterating an association with no matching `includes`/`preload` → 🟡 probable N+1. Spot-check the dev log (or add `bullet`/`prosopite`) to confirm.
+- Views/controllers iterating an association with no matching `includes`/`preload` → 🟡 probable N+1. Spot-check the dev log (or add `prosopite` — near-zero false positives, unlike `bullet`) to confirm.
 - For caching, ETags, batching, and the full N+1 treatment → [[rails-performance]].
+
+**Production footguns** — cheap greps for configurations that cause outages, not just slowness:
+
+```bash
+grep -nE 'puma_worker_killer|unicorn-worker-killer' Gemfile                      # memory-threshold worker killers
+grep -rnE 'send_data|send_file' app/controllers/ | head                          # large files served from the web process
+grep -rnE 'queue_adapter\s*=\s*:inline|Resque\.inline' config/ | grep -v development  # inline jobs outside dev
+grep -rnE 'timeout' config/initializers/*elastic* config/initializers/*search* config/initializers/*redis* 2>/dev/null  # client timeouts set at all?
+```
+
+- **Worker-killer gem present** → 🟡 hidden ENV thresholds silently turn the app into a restart loop (processes recycled after a handful of requests); removal has halved response times in practice. Modern instances have the RAM — fix leaks instead. → [[rails-performance]]
+- **`send_data` of generated content (CSV/zip/PDF)** → 🟡 memory bloat + blocked threads; move generation to a job, serve from storage. → [[rails-jobs]]
+- **`:inline` job adapter in test/production config** → 🟡 → [[rails-testing]]
+- **No timeout configured on search/cache clients** → 🟡 default 30s timeouts let a degraded Elasticsearch/Redis hold every Puma thread and take the app down. → [[rails-performance]]
 
 ---
 

@@ -1,7 +1,7 @@
 {
   "name": "rails-toolkit",
   "description": "37signals-style Rails skills (philosophy, style, models, controllers, jobs, testing, Turbo, Stimulus, security, performance, multi-tenancy, ActiveStorage, ViewComponents) plus a rails-core gotchas skill and a Rails-detection session hook.",
-  "version": "1.2.2",
+  "version": "1.3.0",
   "author": {
     "name": "Mick Zijdel"
   },
