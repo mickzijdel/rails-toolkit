@@ -410,6 +410,25 @@ private
 
 ---
 
+## 9. ERB Comments & Template Linting
+
+**Problem:** `<% # comment %>` looks harmless but trips ERB parsers and template tooling
+(Herb reports it as a parsing error), and some linters can't see past it.
+
+**Solution:** Always use the dedicated ERB comment tag `<%#`:
+
+```erb
+<%# Good: dedicated ERB comment tag %>
+<% # Bad: Ruby comment inside an execution tag — causes parsing issues %>
+```
+
+If the project uses [Herb](https://herb-tools.dev) (ERB language server / linter):
+- `bin/herb analyze app/views app/components` checks all templates for parsing errors — run it after template changes and before committing.
+- Configuration lives in `.herb.yml` (accessibility rules, HTML validity, ERB best practices).
+- The VS Code Herb extension adds live linting and ERB format-on-save.
+
+---
+
 ## Summary Checklist
 
 When writing or reviewing code, verify:
@@ -422,3 +441,4 @@ When writing or reviewing code, verify:
 - [ ] Controllers are thin, calling rich model APIs
 - [ ] Bang methods only used when non-bang counterpart exists
 - [ ] Async operations use `_later`/`_now` naming convention with shallow jobs
+- [ ] ERB comments use `<%#`, never `<% #`

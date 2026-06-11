@@ -135,6 +135,12 @@ logo:
 - For non-UUID foreign keys, use plain fixture names: `identity: david`
 - UUIDs are generated deterministically so `.first`/`.last` work correctly in tests
 - Fixture UUIDs sort "before" runtime-created records, so new records are always "newer"
+- **A fixture with an explicit `id:` breaks association-by-label references to it.** If
+  `users.yml` `admin` sets `id: 1`, then `creator: admin` in another fixture writes the FK as
+  `ActiveRecord::FixtureSet.identify(:admin)` — a *hashed* id that does **not** equal the
+  explicit `1` — so `record.creator` loads `nil` even though `creator_id` is set. When a test
+  needs the association to resolve, reference the explicit id directly (`creator_id: 1`),
+  not the label.
 
 ---
 
@@ -446,6 +452,8 @@ PARALLEL_WORKERS=1 bin/rails test:system
 - System tests must run with `PARALLEL_WORKERS=1` to avoid conflicts
 - Use `PARALLEL_WORKERS=1` when debugging flaky tests
 - Work stealing (`work_stealing: true`) improves load balancing
+
+**Sharding across multiple CI jobs:** when a suite outgrows one machine, split it with a queue, never a static file list. Hardcoded slices ("job 3 runs `test/system/a*`–`test/system/m*`") always drift unbalanced, and the build is only as fast as its unluckiest job — one 14-minute shard makes a 14-minute build. With a queue, every worker pulls the next test file as it finishes, so all shards end at roughly the same time (the same work-stealing principle `parallelize` already applies in-process). Tools: `test-queue`, `parallel_tests` (runtime-based balancing), `spec-wrk` (networked queue across GitHub Actions jobs), or paid services like Knapsack Pro.
 
 ---
 
@@ -824,6 +832,38 @@ end
 
 ---
 
+## 13. Mocking — Verify the Tools Exist Before Stubbing
+
+**Problem:** Writing `.stubs`/`.stub` and getting `NoMethodError: undefined method 'stubs'` —
+the suite has no mocking library.
+
+**Solution:** Check `test_helper.rb` and the Gemfile before reaching for mocks. **minitest 6
+dropped the bundled `minitest/mock`**, and many suites never added mocha, so neither
+`Object#stub` nor `.stubs` can be assumed (the §1 example requires `mocha/minitest` —
+verify it's actually there). Prefer stubbing external services by toggling their
+configuration over introducing a mocking library:
+
+```ruby
+# Force a reCAPTCHA failure without any mocking library: drop "test" from the
+# skip list and send no token — verification really runs and really fails.
+test "rejects submission when reCAPTCHA fails" do
+  Recaptcha.configuration.skip_verify_env.delete("test")
+
+  post opportunities_path, params: { opportunity: { title: "Stage Manager" } }
+
+  assert_response :unprocessable_entity
+ensure
+  Recaptcha.configuration.skip_verify_env << "test"
+end
+```
+
+**Key Points:**
+- Don't write `.stubs`/`.stub` until you've confirmed mocha (or `minitest/mock`) is in the bundle.
+- Config toggles exercise the real code path; mocks only assert you called what you stubbed.
+- For HTTP, use VCR/WebMock (§5) rather than stubbing the client class.
+
+---
+
 ## Quick Reference
 
 | Command | Description |
@@ -852,3 +892,5 @@ end
 | `post create_path, params: {...}` | Test forms whose editor can't be `fill_in`-ed |
 | `perform_enqueued_jobs { ... }` | Explicitly run jobs (never `:inline` adapter) |
 | `assert_enqueued_with job: SomeJob` | Assert enqueueing without running the job |
+| `creator_id: 1` (not `creator: admin`) | Reference a fixture that sets an explicit `id:` |
+| Config toggle (not `.stubs`) | Stub external services when the suite has no mocking library |

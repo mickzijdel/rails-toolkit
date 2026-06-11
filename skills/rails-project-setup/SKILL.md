@@ -27,7 +27,8 @@ Use the Solid Stack gems (solid_queue, solid_cache, solid_cable) along with prop
 From `/Gemfile`:
 
 ```ruby
-source "https://rubygems.org"
+# cooldown: gems must be public 4 days before resolving (supply-chain defense, Bundler 4.0.6+)
+source "https://rubygems.org", cooldown: 4
 
 gem "rails", github: "rails/rails", branch: "main"
 
@@ -61,6 +62,15 @@ gem "mission_control-jobs"
 - `thruster` - HTTP/2 proxy for Rails (replaces nginx for simple setups)
 - `kamal` - Zero-downtime deployment tool
 - `mission_control-jobs` - Web UI for monitoring Solid Queue
+
+**Bundler cooldown (supply-chain defense):**
+- Put `cooldown: 4` on the `source` line of every own-project Gemfile: gems must have been public for 4 days before Bundler will resolve them, so freshly-hijacked releases can be vetted/yanked first ([feature announcement](https://blog.rubygems.org/2026/06/03/cooldown-let-new-gems-be-vetted.html), Bundler 4.0.6+).
+- Complement it machine-wide with `bundle config set --global cooldown 4`; the explicit per-Gemfile line documents the policy and survives global-config changes.
+- Scope: own projects only — never add it to vendored gem Gemfiles, `.ruby-lsp/Gemfile`, or appraisal gemfiles.
+
+**Vite + pnpm apps (alternative front-end stack):**
+- importmap-rails/no-Node is the default for *new* apps, but apps with heavier JavaScript needs may run **Vite** (+ Tailwind, Stimulus) alongside Propshaft, with Propshaft still serving page-specific assets from `app/assets`. Don't migrate such an app to importmaps.
+- When Node packages are involved, use **pnpm** — not npm, yarn, or bun.
 
 ---
 

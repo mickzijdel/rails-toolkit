@@ -647,6 +647,35 @@ end
 
 ---
 
+## Pattern 9: URL as State for GET Actions
+
+**Problem:** Filters, tabs, search terms, and sort orders stored in session or JavaScript state make views impossible to link, bookmark, or share, and a refresh loses them.
+
+**Solution:** For GET actions, keep UI state in readable URL query params. The URL is the canonical state: shareable, bookmarkable, refresh-safe, and back-button-friendly.
+
+**Example:**
+```ruby
+# /opportunities?category=acting&company=eutc&sort=newest
+def index
+  @opportunities = Opportunity.listable
+    .then { |scope| params[:category].present? ? scope.where(category: params[:category]) : scope }
+    .then { |scope| params[:company].present? ? scope.joins(:company).where(companies: { slug: params[:company] }) : scope }
+end
+```
+
+```erb
+<%# Tabs and filters are plain links that change params — no JS state %>
+<%= link_to "Acting", opportunities_path(category: :acting) %>
+```
+
+**Key Points:**
+- Prefer human-readable values (`?category=acting`, slugs) over opaque ids where possible.
+- Filter links become shareable deep links (e.g. a per-company listing URL) for free.
+- Forms that filter should use `method: :get` so submissions land in the URL.
+- Session/cookies are for cross-request identity, not view state.
+
+---
+
 ## Quick Reference
 
 | Pattern | When to Use |
@@ -659,3 +688,4 @@ end
 | ETags with fresh_when | Cacheable GET requests |
 | respond_to blocks | Supporting multiple response formats |
 | Thin Controllers | Always - delegate logic to models |
+| URL as State | GET actions with filters, tabs, search, or sort |

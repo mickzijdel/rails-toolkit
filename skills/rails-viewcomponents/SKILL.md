@@ -88,6 +88,7 @@ of the single-source-of-truth pattern.
 - Never put logic inline in the template; push it into instance methods
 - Avoid coupling to global state (request params, `Current`, URLs) — pass everything via the constructor
 - Use `-Component` suffix in class name
+- **If the app supports dark mode, style both modes.** Every new view or component needs light *and* dark styling (Tailwind `dark:` variants) — check an existing component for the app's convention before shipping a light-only one.
 - **ViewComponents do not auto-include view helpers.** Inside a component template you can't call app helpers (`btn_classes`, `get_link`, etc.) — those exist only in regular views. When one component needs another's styling, expose it as a **class method** (`ButtonComponent.classes_for(...)`) and call that instead.
 
 ## Slots
@@ -237,3 +238,4 @@ end
 | Calling a view helper inside a component template | Helpers aren't auto-included — expose a class method like `classes_for` and call that |
 | Scattering `btn btn-*` style classes across views | One component owns the class map in a constant; edit only that constant |
 | Shipping a component without a preview | Add a `*_component_preview.rb` in the same commit (a lint cop often requires it) |
+| Light-only styling in a dark-mode app | Add `dark:` variants alongside every light style |
