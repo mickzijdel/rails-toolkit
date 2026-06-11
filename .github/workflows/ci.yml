@@ -80,13 +80,10 @@ jobs:
       - name: Duplication (jscpd)
         # -f scopes to code formats (no config equivalent); .jscpd.json carries
         # minTokens/threshold/reporters/gitignore/ignorePattern.
-        # Match the pre-commit jscpd version: latest on a 4-day cooldown, floored at v5
-        # (see hk.pkl / SKILL.md › jscpd version policy) so local and CI gates agree.
-        run: |
-          cutoff=$(date -u -d '4 days ago' +%F)
-          ver=$(npx --before="$cutoff" --yes jscpd --version 2>/dev/null | awk 'END{print $NF}')
-          case "$ver" in ''|0.*|1.*|2.*|3.*|4.*) ver=latest;; esac
-          npx --yes jscpd@"$ver" . -f python,bash
+        # Runner + version policy (latest on a 4-day cooldown, floored at v5 — see
+        # SKILL.md › jscpd version policy) are shared with the hk pre-commit gate via
+        # scripts/run-jscpd.sh; --require keeps CI strict (unrunnable jscpd fails the job).
+        run: bash scripts/run-jscpd.sh --require python,bash
       - name: Large files
         run: |
           limit=512000

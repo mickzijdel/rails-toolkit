@@ -56,15 +56,12 @@ local linters = new Mapping<String, Step> {
     }
     // Duplication. jscpd 5.x via npx; config in `.jscpd.json`. `-f` scopes to code formats
     // (no config equivalent) so docs/yaml aren't flagged. (See SKILL.md › jscpd note.)
-    // Version policy: track latest with a 4-day cooldown (never run a release < 4 days old —
-    // supply-chain seasoning), floored at v5 (the major .jscpd.json targets) so it can't
-    // regress to v4 while v5 is still maturing. Online → resolve the newest version >= 4 days
-    // old (`npx --before`), fall back to `latest` when that lands below the v5 floor, then run
-    // it (the real gate — exit reflects duplication). Offline → run the cached jscpd. No cache
-    // + offline → warn and pass, so a commit is never blocked by an unreachable registry.
+    // The version-cooldown policy (latest on a 4-day cooldown, floored at v5) and the
+    // offline fallback live in scripts/run-jscpd.sh, shared with the CI audit job so the
+    // local and CI gates can't drift.
     ["jscpd"] {
         glob = List("**/*.sh", "**/*.py")
-        check = "cutoff=$(date -u -d '4 days ago' +%F 2>/dev/null || date -u -v-4d +%F); if curl -sf -m 3 https://registry.npmjs.org/ >/dev/null 2>&1; then ver=$(npx --before=$cutoff --yes jscpd --version 2>/dev/null | awk 'END{print $NF}'); case $ver in ''|0.*|1.*|2.*|3.*|4.*) ver=latest;; esac; npx --yes jscpd@$ver . -f python,bash; elif npx --offline jscpd --version >/dev/null 2>&1; then npx --offline jscpd . -f python,bash; else echo 'jscpd unavailable offline; skipping duplication check'; fi"
+        check = "bash scripts/run-jscpd.sh python,bash"
     }
     // Secret scanning (defense-in-depth alongside fnox). hk builtin.
     ["gitleaks"] = Builtins.gitleaks
