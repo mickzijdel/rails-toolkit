@@ -25,4 +25,4 @@ minimum_release_age = "4d"
 [env]
 # dev-env standard version this repo targets (dev-hooks:dev-env-setup). Do not
 # hand-edit — bump it by running the skill's upgrade path.
-DEV_ENV_VERSION = "14"
+DEV_ENV_VERSION = "15"

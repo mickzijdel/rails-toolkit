@@ -32,6 +32,18 @@ jobs:
         run: |
           files=$( { git ls-files '*.py'; git ls-files ':!*.py' | while IFS= read -r f; do head -n1 "$f" 2>/dev/null | grep -qE '^#!.*(python|uv run)' && printf '%s\n' "$f"; done; } | sort -u )
           if [ -n "$files" ]; then ruff check $files && ruff format --check $files; else echo "no python files, skipping"; fi
+      - name: Executable bits on shipped scripts
+        # Any tracked file whose first line is a shebang must be mode 100755 in the
+        # index — with core.fileMode=false a local chmod never reaches git, and a
+        # 100644 script dies with exit 126 on every fresh clone / plugin install.
+        # Mirrors the hk `exec-bit-scripts` step so CI and pre-commit agree.
+        run: |
+          bad=$(git ls-files -s | awk -F'\t' '$1 ~ /^100644/ { if ((getline line < $2) > 0 && line ~ /^#!/) print $2; close($2) }')
+          if [ -n "$bad" ]; then
+            echo "Shebang scripts missing the executable bit in the git index. Fix: git update-index --chmod=+x <file>"
+            echo "$bad"
+            exit 1
+          fi
 
   test:
     runs-on: ubuntu-latest
