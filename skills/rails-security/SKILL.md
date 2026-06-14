@@ -352,6 +352,87 @@ Skip forgery protection only for truly public endpoints (e.g. the PWA service wo
 
 ---
 
+## 8. Content Security Policy (CSP)
+
+Rails ships `ActionDispatch::ContentSecurityPolicy` (Rails 5.2+). A properly configured CSP is one of the strongest XSS mitigations: even if an attacker injects a `<script>` into a page, the browser refuses to execute it unless it carries the per-request nonce.
+
+Generate the initializer:
+
+```bash
+bin/rails generate content_security_policy
+```
+
+**Initializer with nonce support:**
+
+```ruby
+# config/initializers/content_security_policy.rb
+Rails.application.config.content_security_policy do |policy|
+  policy.default_src :self
+  policy.font_src    :self
+  policy.img_src     :self, :data
+  policy.object_src  :none
+  policy.script_src  :self, :nonce  # nonce covers Importmap + inline scripts
+  policy.style_src   :self, :nonce
+  policy.report_uri  "/csp-violation-reports"  # collect violations during rollout
+end
+
+# Per-request nonce; Rails injects it automatically into helper-generated tags
+Rails.application.config.content_security_policy_nonce_generator = ->(_request) {
+  SecureRandom.base64(16)
+}
+# Which directives receive the auto-injected nonce
+Rails.application.config.content_security_policy_nonce_directives = %w[script-src style-src]
+```
+
+Rails automatically adds `nonce="…"` to tags from `javascript_include_tag`, `stylesheet_link_tag`, and `javascript_importmap_tags`. For any hand-written inline blocks:
+
+```erb
+<script nonce="<%= content_security_policy_nonce %>">
+  <%# inline code that needs the nonce %>
+</script>
+```
+
+**Roll out with report-only first:**
+
+Enforcing CSP on an app that hasn't been through report-only is the fastest way to silently break it in production. Start here:
+
+```ruby
+# config/environments/production.rb
+Rails.application.config.content_security_policy_report_only = true
+```
+
+A minimal endpoint to collect violations during rollout:
+
+```ruby
+# config/routes.rb
+post "/csp-violation-reports", to: "csp_reports#create"
+
+# app/controllers/csp_reports_controller.rb
+class CspReportsController < ApplicationController
+  skip_before_action :verify_authenticity_token
+  allow_unauthenticated_access
+
+  def create
+    Rails.logger.warn "CSP violation: #{request.body.read}"
+    head :ok
+  end
+end
+```
+
+Each violation log line names the blocked source. Add legitimate sources to the policy until the logs are clean, then remove `content_security_policy_report_only` to enforce.
+
+**Common mistakes:**
+
+| Mistake | Why it's bad | Fix |
+|---------|-------------|-----|
+| `policy.script_src :unsafe_inline` | Allows all inline scripts — XSS protection is gone | Use nonces instead |
+| `policy.script_src "*"` | Allows scripts from any external origin | List only the domains you actually load scripts from |
+| Omitting `object_src :none` | Old-style plugin injection still possible | Always set it to `:none` |
+| Skipping report-only | Breaks the app silently on first deploy | Always start in report-only mode |
+| Missing nonce directives | Importmap / inline scripts fail in production | Set `content_security_policy_nonce_directives` |
+
+---
+
 ## Security Checklist
 
 When implementing new features, verify:
@@ -364,3 +445,4 @@ When implementing new features, verify:
 - [ ] **Timing-safe comparisons?** Use `ActiveSupport::SecurityUtils.secure_compare` for secrets
 - [ ] **Signed/encrypted cookies?** Use `cookies.signed` or `cookies.encrypted`
 - [ ] **Signed IDs for URLs?** Use `model.signed_id` for unguessable references
+- [ ] **Content Security Policy?** CSP initializer present with nonce generator; rolled out via `_report_only` before enforcing
