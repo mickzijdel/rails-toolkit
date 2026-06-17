@@ -14,6 +14,7 @@ gotchas skill, and a Rails-detection session hook.
 - **rails-performance**, **rails-database-performance** — caching/ETags/N+1 and schema/index audits.
 - **rails-audit** — top-level health-check of an existing/inherited app (version pinning, bundler-audit/brakeman, exposed secrets, seeds, tech debt) that orchestrates the deep-dive skills and emits a severity-ranked report.
 - **rails-multi-tenancy**, **rails-security**, **rails-project-setup**.
+- **rails-api** — API-only and JSON API design: `Api::BaseController` setup, namespace versioning, Jbuilder/Blueprinter serialization, CORS with rack-cors, pagy pagination, standardized JSON error responses, authentication guidance, and request-spec/Minitest patterns.
 
 Many code examples are extracted from 37signals' Fizzy codebase and STYLE.md; they
 illustrate the patterns and are not files in this repository or yours.
