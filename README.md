@@ -11,6 +11,7 @@ gotchas skill, and a Rails-detection session hook.
 - **rails-style** — method ordering, conditionals, REST routing, naming.
 - **rails-models**, **rails-controllers**, **rails-jobs**, **rails-turbo**, **rails-stimulus**, **rails-viewcomponents**, **rails-activestorage** — area guides.
 - **rails-testing** — fixtures, system tests, VCR, parallel execution.
+- **rails-clean-test-output** — eliminate noisy test output (warnings, stray puts/p/pp, deprecations) one issue at a time with per-fix verification and commits; detects RSpec vs Minitest, and replaces logging `p`s with severity-appropriate `Rails.logger` calls. Wraps thoughtbot's vendored `clean-rspec-output` skill.
 - **rails-performance**, **rails-database-performance** — caching/ETags/N+1 and schema/index audits.
 - **rails-audit** — top-level health-check of an existing/inherited app (version pinning, bundler-audit/brakeman, exposed secrets, seeds, tech debt) that orchestrates the deep-dive skills and emits a severity-ranked report.
 - **rails-multi-tenancy**, **rails-security**, **rails-project-setup**.
@@ -22,10 +23,27 @@ illustrate the patterns and are not files in this repository or yours.
 ### Hook
 - **SessionStart** (`bin/rails-detect-hook`): when a session opens in a Rails project (a `Gemfile` that requires the `rails` gem), injects a reminder to consult `rails-toolkit:rails-core` and the other `rails-toolkit:rails-*` skills.
 
+### Vendored skills (git submodules)
+- **`vendor/rails-upgrade-skill`** ([ombulabs](https://github.com/ombulabs/claude-code_rails-upgrade-skill)) — exposes the `rails-upgrade` and `upgrade-cleanup` skills via `plugin.json`'s `skills` path.
+- **`vendor/clean-rspec-output`** ([thoughtbot](https://github.com/thoughtbot/clean-rspec-output)) — reference material for `rails-clean-test-output`; not registered directly, the wrapper skill reads it. Update either with `git submodule update --remote <path>` and commit the new pointer.
+
 ## Install
 
 This plugin lives in `~/.claude/skills/rails-toolkit/` and auto-loads as
 `rails-toolkit@skills-dir`. Its skills are namespaced `rails-toolkit:<name>`.
+
+Clone with submodules (or run `git submodule update --init --recursive` after cloning) so the
+vendored skills above are present.
+
+## Usage
+
+Skills load on demand by name (`rails-toolkit:<name>`) and trigger from their descriptions, so
+in a Rails project Claude reaches for them automatically — start with `rails-toolkit:rails-core`.
+You can also invoke one explicitly, e.g. to clean up a noisy suite:
+
+```
+/rails-toolkit:rails-clean-test-output
+```
 
 ## Development
 

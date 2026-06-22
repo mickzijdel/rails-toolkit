@@ -1,12 +1,12 @@
 {
   "name": "rails-toolkit",
-  "description": "37signals-style Rails skills (philosophy, style, models, controllers, jobs, testing, Turbo, Stimulus, security, performance, multi-tenancy, ActiveStorage, ViewComponents, API) plus a rails-core gotchas skill and a Rails-detection session hook.",
-  "version": "1.6.1",
+  "description": "37signals-style Rails skills (philosophy, style, models, controllers, jobs, testing, Turbo, Stimulus, security, performance, multi-tenancy, ActiveStorage, ViewComponents, API) plus a rails-core gotchas skill, a test-output cleanup skill (RSpec/Minitest), and a Rails-detection session hook.",
+  "version": "1.7.0",
   "author": {
     "name": "Mick Zijdel"
   },
   "repository": "https://github.com/mickzijdel/rails-toolkit",
   "license": "MIT",
   "skills": "./vendor/rails-upgrade-skill/",
-  "keywords": ["rails", "ruby", "hotwire", "37signals", "turbo", "stimulus", "audit"]
+  "keywords": ["rails", "ruby", "hotwire", "37signals", "turbo", "stimulus", "audit", "testing", "rspec", "minitest"]
 }
