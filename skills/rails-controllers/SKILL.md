@@ -24,6 +24,48 @@ class ApplicationController < ActionController::Base
 end
 ```
 
+**Don't let `ApplicationController` become a dumping ground.** Because it's already a
+grab-bag, every new method feels free — "will one more method among 25 really hurt?" — and
+the file grows into a pile of unrelated helpers (current-user checks, default redirects,
+`production?`/`staging?` environment checks, `www`-canonicalisation, response-header
+setters, …) that nobody dares move or delete because they might be referenced from
+anywhere. That's not a crisis, but it's real cognitive load on every controller in the app.
+
+When you add a method to `ApplicationController` — or find one already bloated — apply three rules:
+
+1. **Group related methods and label each group with a comment.** Similar methods should sit
+   together, not be scattered, so the next reader can scan the file.
+2. **Don't make a method globally accessible unless it needs to be.** A method that backs a
+   `before_action` running on every request earns its place here. A method used by only one
+   or two controllers (out of 20+) does not — move it into a concern and `include` it only in
+   the controllers that need it (see Pattern 2 and the `*Scoped` concerns below).
+3. **Two or more related methods → extract them into a named concern.** A cluster like
+   CDN/cache header setters becomes `app/controllers/concerns/akamai.rb`, leaving a single
+   `include Akamai` line. The behaviour stays available but is contained, named, and testable
+   in isolation.
+
+```ruby
+# Bad: a dumping ground — unrelated helpers, no grouping, all global
+class ApplicationController < ActionController::Base
+  def current_account; ...; end
+  def set_cache_headers; response.headers["Cache-Control"] = ...; end
+  def force_www; redirect_to "https://www.#{request.host}..." unless ...; end
+  def production?; Rails.env.production?; end
+  def purge_cdn(path); ...; end
+  def redirect_to_dashboard; ...; end
+  def staging?; Rails.env.staging?; end
+  def set_surrogate_key(*keys); response.headers["Surrogate-Key"] = ...; end
+  # ...20 more, in no particular order
+end
+
+# Good: each cluster extracted into a named concern, base stays a manifest
+class ApplicationController < ActionController::Base
+  include Authentication      # current_account & friends
+  include CanonicalHost       # force_www, host canonicalisation
+  include Akamai              # set_cache_headers, set_surrogate_key, purge_cdn
+end
+```
+
 ---
 
 ## Pattern 2: Resource Scoping Concerns

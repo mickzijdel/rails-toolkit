@@ -191,9 +191,11 @@ echo "Fattest models:";      wc -l app/models/**/*.rb 2>/dev/null | sort -rn | h
 echo "Fattest controllers:"; wc -l app/controllers/**/*.rb 2>/dev/null | sort -rn | head -10
 echo "Service-object sprawl:"; ls app/services 2>/dev/null | wc -l
 grep -rnE '^\s*def ' app/controllers/ 2>/dev/null | grep -vE 'index|show|new|create|edit|update|destroy' | head   # non-REST actions
+echo "ApplicationController methods:"; grep -cE '^\s*def ' app/controllers/application_controller.rb 2>/dev/null   # dumping-ground smell
 ```
 
 - **Controllers fat with business logic / many non-REST actions** → 🟡 push behaviour into models, extract concerns. See [[rails-controllers]] and [[rails-style]] (REST routing).
+- **`ApplicationController` is a dumping ground** (many methods — say 8+ — especially unrelated ones not backing a `before_action`, with no grouping) → 🟡. It accretes current-user checks, default redirects, env (`production?`/`staging?`) checks, `www`-canonicalisation, response-header setters, etc., that nobody dares move. Group related methods under comments, push any method used by only 1–2 controllers into a concern `include`d just there, and extract each cluster of 2+ related methods into a named concern (e.g. `include Akamai`). The base controller should read as a manifest of `include`s. → [[rails-controllers]] (Pattern 1).
 - **God models (many hundreds of lines)** → 🟡 extract concerns / POROs. See [[rails-models]].
 - **A large `app/services/` tree** → 🟡 in 37signals-style Rails this is usually logic that belongs on rich models, not a service layer. Weigh against [[rails-philosophy]] before recommending more of it.
 
