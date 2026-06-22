@@ -333,6 +333,17 @@ end
 
 ---
 
+## 13. Anti-Patterns to Avoid
+
+A few ActiveRecord defaults bite later. Prefer the right column on the right:
+
+- **`default_scope`** → use explicit named scopes (Pattern 4). A `default_scope` silently filters *every* query, leaks into `new`/`create` attribute defaults and through associations, and is awkward to escape (`unscoped` drops *all* conditions, not just the default).
+- **`has_and_belongs_to_many`** → use `has_many :through` with a real join model. The join table is a record you'll inevitably want to give a column, validation, or callback; HABTM can't.
+- **Boolean `presence` validation** → `validates :active, presence: true` rejects `false`, since `false.blank?` is true. Use `inclusion: { in: [ true, false ] }`, or rely on a `null: false` column with a default.
+- **`delete`/`delete_all` when callbacks or `dependent:` matter** → use `destroy`/`destroy_all`. `delete` issues a raw SQL `DELETE`, skipping callbacks ([[rails-models]] §9), `dependent:` cleanup, and `after_*_commit` side effects. Only reach for `delete_all` on a scope you've confirmed has no dependents to cascade.
+
+---
+
 ## Quick Reference
 
 | Pattern | When to Use |
@@ -348,3 +359,6 @@ end
 | `after_*_commit` callbacks | External side effects (jobs, broadcasts) |
 | Association extensions | Custom collection methods |
 | `t.references :x, type: :integer` | FK pointing to a legacy `id: :integer` parent table |
+| `has_many :through` over `has_and_belongs_to_many` | Join needs (or may need) its own columns/validations |
+| `inclusion: { in: [true, false] }` | Validating a boolean is set (`presence` rejects `false`) |
+| `destroy` over `delete` | Removal must fire callbacks and `dependent:` cleanup |

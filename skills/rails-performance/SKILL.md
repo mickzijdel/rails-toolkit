@@ -148,6 +148,19 @@ end
 - Use `preload` for separate queries, `includes` when you need to filter on the association.
 - Use `with_rich_text_*_and_embeds` for ActionText (see [[rails-activestorage]] for attachment preload names).
 
+### Choosing a loading strategy
+
+The `preloaded` scope above uses `preload`, the right default. Reach for the others only when filtering or sorting by an association:
+
+| Method | Query strategy | Reach for it when |
+|--------|----------------|-------------------|
+| `preload` | One extra query per association | **Default.** You read the association but don't filter/sort by it (the `preloaded` scope). |
+| `includes` | Rails auto-picks `preload` or a LEFT JOIN | You filter/sort on the association and want Rails to decide (pair with `references` when you reference it in `where`). |
+| `eager_load` | Forces one LEFT OUTER JOIN | You filter/sort on the association and want to force the single-query form `includes` would otherwise leave to chance. |
+| `joins` | INNER JOIN, loads nothing | You filter *by* the association but never read its columns. |
+
+`joins` does not load the association — touching its attributes afterward re-triggers the N+1. Switch to `preload`/`includes` the moment you need the data, not just the filter.
+
 ---
 
 ## 8. N+1 Detection with Prosopite
