@@ -42,6 +42,8 @@ app/components/
 
 Make the component the **single source of truth** for its styling: keep the class map in a
 constant and resolve it through one method — never scatter `btn btn-*` shims across views.
+(Extracting a component is the primary cure for utility-class soup — see the dev-hooks
+`tailwind` skill for design tokens, dark-mode pairing, and when to reach for `@apply`.)
 
 ```ruby
 class ButtonComponent < ViewComponent::Base

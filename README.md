@@ -10,12 +10,12 @@ gotchas skill, and a Rails-detection session hook.
 - **rails-philosophy** — vanilla Rails, rich models, REST everything, Solid Stack, Hotwire first.
 - **rails-style** — method ordering, conditionals, REST routing, naming.
 - **rails-models**, **rails-controllers**, **rails-jobs**, **rails-turbo**, **rails-stimulus**, **rails-viewcomponents**, **rails-activestorage** — area guides.
-- **rails-testing** — fixtures, system tests, VCR, parallel execution.
+- **rails-testing** — fixtures, system tests, VCR, parallel execution, SimpleCov coverage checks, and test-gap pre-flight.
 - **rails-clean-test-output** — eliminate noisy test output (warnings, stray puts/p/pp, deprecations) one issue at a time with per-fix verification and commits; detects RSpec vs Minitest, and replaces logging `p`s with severity-appropriate `Rails.logger` calls. Wraps thoughtbot's vendored `clean-rspec-output` skill.
 - **rails-performance**, **rails-database-performance** — caching/ETags/N+1 and schema/index audits.
 - **rails-audit** — top-level health-check of an existing/inherited app (version pinning, bundler-audit/brakeman, exposed secrets, seeds, tech debt) that orchestrates the deep-dive skills and emits a severity-ranked report.
 - **rails-multi-tenancy**, **rails-security**, **rails-project-setup**.
-- **rails-api** — API-only and JSON API design: `Api::BaseController` setup, namespace versioning, Jbuilder/Blueprinter serialization, CORS with rack-cors, pagy pagination, standardized JSON error responses, authentication guidance, and request-spec/Minitest patterns.
+- **rails-api** — API-only and JSON API design: `Api::BaseController` setup, namespace versioning, Jbuilder/Blueprinter serialization, CORS with rack-cors, offset (pagy) and keyset/cursor pagination, standardized JSON error responses, authentication guidance, and request-spec/Minitest patterns.
 
 Many code examples are extracted from 37signals' Fizzy codebase and STYLE.md; they
 illustrate the patterns and are not files in this repository or yours.

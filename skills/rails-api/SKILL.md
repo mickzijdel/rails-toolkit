@@ -144,6 +144,52 @@ render json: {
 
 Always paginate collections — never return unbounded `Model.all` to an API client.
 
+### Keyset (cursor) pagination for large or append-heavy collections
+
+Offset pagination (`pagy`, `LIMIT/OFFSET`) is fine for admin lists, but it degrades on large datasets — the database still scans and discards every skipped row, so deep pages get slower — and it's unstable while the collection changes: a row inserted or deleted between requests shifts the window, so the client skips or repeats records. For big feeds, infinite scroll, and public list endpoints, paginate by a **cursor** on the ordered key instead:
+
+```ruby
+# controller action — /api/v1/articles?after=<cursor>&per_page=25
+def index
+  limit = (params[:per_page] || 25).to_i.clamp(1, 100)
+  scope = Article.published.order(created_at: :desc, id: :desc)
+
+  if (cursor = decode_cursor(params[:after]))
+    created_at, id = cursor
+    # row-value comparison walks straight to the next page — no offset scan
+    scope = scope.where("(created_at, id) < (?, ?)", created_at, id)
+  end
+
+  articles = scope.limit(limit + 1).to_a   # fetch one extra to detect "more"
+  has_more = articles.size > limit
+  articles = articles.first(limit)
+
+  render json: {
+    data: ArticleBlueprint.render_as_hash(articles),
+    meta: { has_more:, next_cursor: (encode_cursor(articles.last) if has_more) }
+  }
+end
+
+private
+
+def encode_cursor(record)
+  Base64.urlsafe_encode64([record.created_at.iso8601(6), record.id].to_json)
+end
+
+def decode_cursor(value)
+  return if value.blank?
+  JSON.parse(Base64.urlsafe_decode64(value))
+rescue ArgumentError, JSON::ParserError
+  nil # treat a malformed cursor as "start from the beginning"
+end
+```
+
+Key points:
+- **Order by a unique, stable tuple** (`created_at, id`) so the cursor is unambiguous when timestamps collide — never order by `created_at` alone.
+- Return an **opaque `next_cursor`** (encode the tuple) plus a **`has_more`** flag instead of total page counts; computing `count` on a huge table is its own slow query.
+- A `(created_at, id)` composite index makes the row-value comparison an index range scan. See [[rails-database-performance]] for the index.
+- Trade-off: no "jump to page N" and no total count. Keep offset pagination where the UI needs page numbers.
+
 ## 6. Standardized JSON errors
 
 Consistent error shape across all endpoints makes client error handling predictable:

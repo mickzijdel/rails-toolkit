@@ -405,6 +405,72 @@ Config toggles exercise the real code path; mocks only assert you called what yo
 
 ---
 
+## 12. Coverage — Check What You Changed Is Actually Tested
+
+SimpleCov tells you which lines your tests touched. Wire it to emit JSON so a coverage check is scriptable, not just a browseable HTML report. Add `simplecov_json_formatter` to the test group and register both formatters:
+
+```ruby
+# test/test_helper.rb (top, before any app code is required)
+require "simplecov"
+SimpleCov.start "rails" do
+  formatter SimpleCov::Formatter::MultiFormatter.new([
+    SimpleCov::Formatter::HTMLFormatter,
+    SimpleCov::Formatter::JSONFormatter
+  ])
+end
+```
+
+Run with coverage on, then read the JSON to judge the diff — not the whole app:
+
+```bash
+COVERAGE=1 bin/rails test
+```
+
+`coverage/coverage.json` is keyed by absolute file path; each entry's `lines` array holds one value per source line — `null` (not executable: blanks, comments, `end`), `0` (executable but **never hit**), or `1+` (hit count). For each file you changed: coverage % = (lines `>= 1`) / (non-`null` lines).
+
+**Thresholds — judge the changed files, not the global number:**
+- **≥ 90%** — good, move on.
+- **70–89%** — review the uncovered lines; cover the meaningful ones.
+- **< 70%** — insufficient; add tests until the changed file is well covered.
+
+Prioritise uncovered **public methods**, **conditional branches** (only one side of an `if`/`case` exercised), **guard clauses / early returns**, and **`rescue` paths**. A high global percentage hides an untested method you just wrote — always filter to the files in your diff. See [[rails-audit]] for using SimpleCov to quantify suite-wide coverage on an inherited app.
+
+---
+
+## 13. Testing Principles
+
+Defaults that keep a fixtures-based suite fast to read and quick to diagnose:
+
+- **One behaviour per test; ≤ 4 assertions.** If a test needs more, it's testing more than one thing — split it so a failure name points at exactly what broke.
+- **Descriptive names.** `test "returns the host from a standard URL"`, not `test "host works"`. The name is the failure message.
+- **Test behaviour, not implementation.** Assert on outcomes (return values, persisted state, enqueued jobs), not on which private methods were called — unless the side effect *is* the contract (Pattern 10's `assert_enqueued_with`).
+- **Never `skip` or comment out a test.** A skipped test is a blind spot that reads as green. Fix the code or the test.
+- **Read 2–3 neighbouring tests first.** Match the conventions already in `test/models/`, `test/controllers/`, etc. before adding a new file.
+- **Build, don't persist, when persistence isn't needed.** Use `Model.new`/`build` for pure logic and validation tests; only hit the database (fixtures or `create!`) when the behaviour needs a saved record. See [[rails-core]] Rule 1 — extend fixtures, never mutate existing ones.
+
+---
+
+## 14. Test-Gap Pre-flight — New Code Ships With Tests
+
+Before writing or finishing a change, scope what moved and confirm each piece has a test:
+
+```bash
+git diff main...HEAD --name-only
+```
+
+Map each changed `app/**/*.rb` to its `test/**/*_test.rb` counterpart:
+
+| Changed file | Expected test |
+|---|---|
+| `app/models/post.rb` | `test/models/post_test.rb` |
+| `app/controllers/posts_controller.rb` | `test/controllers/posts_controller_test.rb` |
+| `app/jobs/analyze_post_job.rb` | `test/jobs/analyze_post_job_test.rb` |
+| `app/components/card_component.rb` | `test/components/card_component_test.rb` |
+
+If a changed file has **no** corresponding test, write one — new code ships with tests, no exceptions. This pairs with [[rails-core]] Rule 8: after any fixture or factory change, run the **full** suite (`PARALLEL_WORKERS=1` for readable output), since fixtures cascade across the whole suite.
+
+---
+
 ## Quick Reference
 
 | Command | Description |
@@ -416,6 +482,8 @@ Config toggles exercise the real code path; mocks only assert you called what yo
 | `PARALLEL_WORKERS=1 bin/rails test` | Disable parallel execution (debugging, system tests) |
 | `SYSTEM_TESTS_BROWSER=true bin/rails test:system` | See browser during tests |
 | `VCR_RECORD=true bin/rails test` | Record new VCR cassettes |
+| `COVERAGE=1 bin/rails test` | Run with SimpleCov; read `coverage/coverage.json` for the diff |
+| `git diff main...HEAD --name-only` | Scope changed files → map each to its `*_test.rb` |
 
 | Pattern | When to Use |
 |---------|-------------|

@@ -158,6 +158,18 @@ class Cards::ClosuresController < ApplicationController
 end
 ```
 
+**Turning a verb into a noun.** When you reach for a custom action, name the *thing* the verb produces and route to its `create`/`destroy`:
+
+| Tempting verb action | Noun resource | Maps to |
+|---|---|---|
+| `POST cards/:id/close` | `resource :closure` | `Cards::ClosuresController#create` (`destroy` = reopen) |
+| `POST posts/:id/archive` | `resource :archive` | `Posts::ArchivesController#create` (`destroy` = unarchive) |
+| `POST posts/:id/publish` | `resource :publication` | `Posts::PublicationsController#create` |
+| `POST users/:id/follow` | `resource :follow` | `Users::FollowsController#create` (`destroy` = unfollow) |
+| `POST pages/:id/visit` | `resource :visit` | `Pages::VisitsController#create` |
+
+The on/off pair (`create`/`destroy`) keeps the controller RESTful and the routes guessable. Reserve `member`/`collection` custom routes for genuinely actionless endpoints that don't represent a resource.
+
 ---
 
 ## Pattern 4: Scoped Resource Loading with Authorization
@@ -313,6 +325,30 @@ end
 
 ---
 
+## Pattern 10: One-Line Route Docstrings on Actions
+
+Give each public action a single comment naming its HTTP verb and path. It makes the controller scannable as a route map and catches actions that have drifted from their route (or shouldn't exist).
+
+```ruby
+class PostsController < ApplicationController
+  # GET /posts
+  def index; end
+
+  # GET /posts/:id
+  def show; end
+
+  # POST /posts
+  def create; end
+
+  # DELETE /posts/:id
+  def destroy; end
+end
+```
+
+Keep it to one line per action; the docstring describes the route, not the implementation. `bin/rails routes -c posts` is the source of truth if a comment and the routes disagree.
+
+---
+
 ## Quick Reference
 
 | Pattern | When to Use |
@@ -326,3 +362,5 @@ end
 | respond_to blocks | Supporting multiple response formats |
 | Thin Controllers | Always - delegate logic to models |
 | URL as State | GET actions with filters, tabs, search, or sort |
+| Verb→noun nested resource | Naming a non-CRUD action (archive→`ArchivesController#create`) |
+| `# GET /posts/:id` docstrings | Every public action — scannable route map |
