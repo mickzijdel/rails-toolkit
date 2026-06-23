@@ -224,6 +224,78 @@ If the project uses [Herb](https://herb-tools.dev) (ERB language server / linter
 
 ---
 
+## 10. Enforcing Style on AI-Generated Code
+
+Everything above this point is *taste* — and a skill or `CLAUDE.md` only **asks** the agent to follow it. A [Claude Code hook](https://docs.anthropic.com/en/docs/claude-code/hooks) **guarantees** the check runs. Deterministic beats hopeful: don't rely on the model remembering the style guide, run RuboCop and make a clean result a condition of finishing. (Technique adapted from thoughtbot's [*Enforcing Your Ruby Style Guide on AI-Generated Code*](https://thoughtbot.com/blog/enforcing-your-ruby-style-guide-on-ai-generated-code).)
+
+> **rails-toolkit ships a gentle version of this for free.** When the plugin is installed, a `PostToolUse` hook (`bin/rubocop-autocorrect-hook`) runs after each `.rb`/`.rake` edit, safe-autocorrects that one file, and reports any remaining offenses back as context — but only in a project that opted into RuboCop (a `.rubocop.yml`) with a resolvable runner; it no-ops everywhere else. It never blocks. The `Stop` hook below is the stronger, *blocking* variant you add per-project when you want the agent's completion gated on a clean lint.
+
+### The hook
+
+Drop this into **your own Rails project** (not into a plugin — a project-local hook only fires for that repo). A `Stop` hook runs RuboCop over the Ruby files in the diff once the agent thinks it is done, autocorrects what it can, and — if offenses remain — exits non-zero so Claude Code feeds the message back and the agent gets exactly **one** corrective pass before it is allowed to stop.
+
+`.claude/settings.json`:
+
+```json
+{
+  "hooks": {
+    "Stop": [
+      { "hooks": [ { "type": "command", "command": ".claude/hooks/rubocop.sh" } ] }
+    ]
+  }
+}
+```
+
+`.claude/hooks/rubocop.sh`:
+
+```sh
+#!/usr/bin/env sh
+# Stop hook: lint the Ruby files the agent touched, autocorrect, then re-check.
+# Exit 2 + stderr -> Claude Code blocks the stop and feeds the message back,
+# giving the agent one chance to fix what --autocorrect could not.
+set -e
+
+files=$(git diff --name-only --diff-filter=d HEAD -- '*.rb' '*.rake' | tr '\n' ' ')
+[ -z "$files" ] && exit 0
+
+bundle exec rubocop --autocorrect $files >/dev/null 2>&1 || true
+
+if ! out=$(bundle exec rubocop --format simple $files 2>&1); then
+  printf 'RuboCop offenses remain — fix them (do not disable cops):\n%s\n' "$out" >&2
+  exit 2
+fi
+```
+
+A lighter alternative is a `PostToolUse` hook on `Edit|Write` that just runs `bundle exec rubocop -a "$file"` per edit — cheaper, but it only autocorrects and never blocks on what it can't fix. The `Stop` version above is what catches the offenses that need the agent's judgment.
+
+### What config to lint against — and what NOT to do
+
+Use **`rubocop-rails-omakase`**: it is the Rails 8 default and the same 37signals house style the rest of this toolkit follows. **Do not hand-author a sprawling custom `.rubocop.yml`** — omakase's own README calls that bikeshedding, and a big bespoke cop set cuts against [[rails-philosophy]] §1 ("Vanilla Rails Is Plenty"). Two things to know about what omakase does and doesn't do:
+
+- **It only covers mechanical consistency** — spacing, indentation, `case`/`end` alignment, double-quoted strings, trailing whitespace. It **cannot** express the taste rules in this skill (method ordering, caller-before-callee, expanded conditionals, CRUD-as-resources, bang / `_later` / `_now` conventions, thin controllers). So the hook and this skill are **complementary**, not redundant: RuboCop enforces the mechanical layer; the agent follows the taste layer because this skill is loaded.
+- **It disables the whole `Rails` and `Security` departments**, so `Rails/OutputSafety` is **off by default**. To get the `html_safe`/`raw` XSS guard referenced below, re-enable a *small* targeted subset on top of omakase — not a full rule set:
+
+```yml
+# .rubocop.yml
+inherit_gem:
+  rubocop-rails-omakase: rubocop.yml
+
+Rails/OutputSafety:   # html_safe / raw are XSS vectors — keep this on
+  Enabled: true
+Lint/Debugger:        # no stray binding.irb / debugger in committed code
+  Enabled: true
+```
+
+### The discipline (`.claude/rules/rubocop.md`)
+
+A hook stops the agent from *silently shipping* offenses; a rules file stops it from *cheating past* them. Add `.claude/rules/rubocop.md` telling the agent:
+
+- **Fix offenses, don't hide them.** Never reach for inline `# rubocop:disable` or `# rubocop:todo` to make a violation go away.
+- **If a cop genuinely doesn't fit** this codebase, surface it in the final response and let the human decide (adjust the config vs. write a real fix) — don't silence it unilaterally.
+- **Never silence `Rails/OutputSafety`.** `html_safe` and `raw` are XSS vectors; if a specific use is truly safe, surface it for the user to approve rather than disabling the cop. See [[rails-security]] for CSP/XSS context.
+
+---
+
 ## Summary Checklist
 
 When writing or reviewing code, verify:
@@ -237,3 +309,4 @@ When writing or reviewing code, verify:
 - [ ] Bang methods only used when non-bang counterpart exists
 - [ ] Async operations use `_later`/`_now` naming convention with shallow jobs
 - [ ] ERB comments use `<%#`, never `<% #`
+- [ ] Style is enforced on AI output via a RuboCop hook; offenses are fixed, never `# rubocop:disable`-d (and `Rails/OutputSafety` is never silenced)

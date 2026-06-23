@@ -1,0 +1,74 @@
+#!/bin/bash
+# PostToolUse hook (rails-toolkit plugin).
+# After an Edit/Write to a Ruby file, run RuboCop safe-autocorrect on just that
+# file, then surface any remaining (non-autocorrectable) offenses back to Claude
+# as context. Non-blocking: it never fails the edit or hijacks the Stop event.
+#
+# Self-guarding so it is safe to enable in every project the plugin is installed
+# in: it no-ops unless the edited file is Ruby AND the project has opted into
+# RuboCop (a .rubocop.yml / .rubocop_todo.yml) AND a rubocop runner resolves.
+# In any other repo it exits 0 silently.
+
+# Hooks receive JSON on stdin.
+INPUT=$(cat 2>/dev/null)
+
+# The path the Edit/Write/MultiEdit tool just wrote (absolute in Claude Code).
+FILE=$(printf '%s' "$INPUT" | jq -r '.tool_input.file_path // empty' 2>/dev/null)
+[ -n "$FILE" ] || exit 0
+
+# Ruby source only.
+case "$FILE" in
+*.rb | *.rake | *.gemspec) ;;
+*) exit 0 ;;
+esac
+[ -f "$FILE" ] || exit 0
+
+# Project root the hook was invoked from; fall back to $PWD.
+DIR=$(printf '%s' "$INPUT" | jq -r '.cwd // empty' 2>/dev/null)
+[ -n "$DIR" ] || DIR="$PWD"
+
+# Opt-in marker: the project ships a RuboCop config.
+if [ ! -f "$DIR/.rubocop.yml" ] && [ ! -f "$DIR/.rubocop_todo.yml" ]; then
+	exit 0
+fi
+
+# Does this project bundle rubocop? Grep only files that exist (passing a missing
+# path to grep is non-portable — BSD grep / ugrep let the file error mask a match),
+# and match gem declarations precisely so comments like "# dropped rubocop" don't
+# trip it. Any rubocop-* plugin transitively locks the plain `rubocop` gem, so an
+# exact "rubocop (" entry in Gemfile.lock covers them all.
+bundled_rubocop() {
+	[ -f "$DIR/Gemfile" ] || return 1
+	if [ -f "$DIR/Gemfile.lock" ]; then
+		grep -qE '^[[:space:]]+rubocop \(' "$DIR/Gemfile.lock" && return 0
+	fi
+	grep -qE '^[[:space:]]*gem[[:space:]]+["'\'']rubocop' "$DIR/Gemfile"
+}
+
+# Resolve a runner: prefer the bundled rubocop, else a global one, else bail.
+if bundled_rubocop; then
+	RUBOCOP=(bundle exec rubocop)
+elif command -v rubocop >/dev/null 2>&1; then
+	RUBOCOP=(rubocop)
+else
+	exit 0
+fi
+
+cd "$DIR" 2>/dev/null || exit 0
+
+# One pass does both jobs: safe autocorrect (-a, not -A, so no semantic-changing
+# fixes land silently) AND a report of what is left. Corrected offenses are tagged
+# [Corrected]; anything still listed is what the agent must fix by hand.
+# --force-exclusion honours the project's Exclude config even for an explicit path.
+OUT=$("${RUBOCOP[@]}" --autocorrect --force-exclusion --format simple "$FILE" 2>/dev/null) || true
+
+# Keep only offense lines (severity:line:col:) that were NOT auto-corrected.
+REMAINING=$(printf '%s\n' "$OUT" | grep -E '^[CWERF]:[[:space:]]+[0-9]+:' | grep -vF '[Corrected]') || true
+[ -n "$REMAINING" ] || exit 0
+
+MSG="RuboCop autocorrected $FILE and left offenses it cannot fix automatically. Fix them in the code — do not add # rubocop:disable / # rubocop:todo
+
+$REMAINING"
+
+jq -cn --arg msg "$MSG" '{hookSpecificOutput: {hookEventName: "PostToolUse", additionalContext: $msg}}'
+exit 0

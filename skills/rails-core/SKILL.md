@@ -81,7 +81,7 @@ Factory and fixture changes have cascading effects across the entire suite. Afte
 
 ## When to reach for the other skills
 - Architecture / "should I add a service object?" → [[rails-philosophy]]
-- Code aesthetics, method ordering, REST routing → [[rails-style]]
+- Code aesthetics, method ordering, REST routing, enforcing style on AI output with a RuboCop hook → [[rails-style]]
 - Models, validations, callbacks, scopes → [[rails-models]]
 - Thin controllers, concerns → [[rails-controllers]]
 - Background jobs (Solid Queue) → [[rails-jobs]]

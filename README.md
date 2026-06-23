@@ -8,7 +8,7 @@ gotchas skill, and a Rails-detection session hook.
 ### Skills (`rails-toolkit:<name>`)
 - **rails-core** — read first; the project owner's hard-won Rails rules (fixtures, migrations, multi-database rollback, dev-server schema-cache restart, Stimulus LSP, server-side validation, gem docs, full-suite-after-factory-changes).
 - **rails-philosophy** — vanilla Rails, rich models, REST everything, Solid Stack, Hotwire first.
-- **rails-style** — method ordering, conditionals, REST routing, naming.
+- **rails-style** — method ordering, conditionals, REST routing, naming, and enforcing style on AI-generated code with a RuboCop hook.
 - **rails-models**, **rails-controllers**, **rails-jobs**, **rails-turbo**, **rails-stimulus**, **rails-viewcomponents**, **rails-activestorage** — area guides.
 - **rails-testing** — fixtures, system tests, VCR, parallel execution, SimpleCov coverage checks, and test-gap pre-flight.
 - **rails-clean-test-output** — eliminate noisy test output (warnings, stray puts/p/pp, deprecations) one issue at a time with per-fix verification and commits; detects RSpec vs Minitest, and replaces logging `p`s with severity-appropriate `Rails.logger` calls. Wraps thoughtbot's vendored `clean-rspec-output` skill.
@@ -20,8 +20,9 @@ gotchas skill, and a Rails-detection session hook.
 Many code examples are extracted from 37signals' Fizzy codebase and STYLE.md; they
 illustrate the patterns and are not files in this repository or yours.
 
-### Hook
+### Hooks
 - **SessionStart** (`bin/rails-detect-hook`): when a session opens in a Rails project (a `Gemfile` that requires the `rails` gem), injects a reminder to consult `rails-toolkit:rails-core` and the other `rails-toolkit:rails-*` skills.
+- **PostToolUse** (`bin/rubocop-autocorrect-hook`): after Claude edits a Ruby file, runs RuboCop safe-autocorrect on it and reports any remaining offenses back as context. Self-guarding — only acts on `.rb`/`.rake`/`.gemspec` files in a project that opted into RuboCop (a `.rubocop.yml`) with a resolvable runner; no-ops silently everywhere else, and never blocks. See `rails-toolkit:rails-style` §10 for the stronger project-local `Stop`-hook variant.
 
 ### Vendored skills (git submodules)
 - **`vendor/rails-upgrade-skill`** ([ombulabs](https://github.com/ombulabs/claude-code_rails-upgrade-skill)) — exposes the `rails-upgrade` and `upgrade-cleanup` skills via `plugin.json`'s `skills` path.
@@ -54,7 +55,7 @@ Tooling is pinned with [mise](https://mise.jdx.dev) and pre-commit checks run vi
 mise trust && mise install   # provision hk, shellcheck, shfmt, uv, node, gitleaks (per mise.lock)
 hk install                   # install the git pre-commit hook
 hk run check                 # lint + audits + gitleaks + large-file guard
-uv run pytest                # exercise bin/rails-detect-hook as a subprocess
+uv run pytest                # exercise the bin/ hook scripts as subprocesses
 ```
 
 The same checks run in CI (`.github/workflows/ci.yml`). Bump the plugin version in
