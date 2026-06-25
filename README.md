@@ -13,6 +13,7 @@ gotchas skill, and a Rails-detection session hook.
 - **rails-testing** — fixtures, system tests, VCR, parallel execution, SimpleCov coverage checks, and test-gap pre-flight.
 - **rails-clean-test-output** — eliminate noisy test output (warnings, stray puts/p/pp, deprecations) one issue at a time with per-fix verification and commits; detects RSpec vs Minitest, and replaces logging `p`s with severity-appropriate `Rails.logger` calls. Wraps thoughtbot's vendored `clean-rspec-output` skill.
 - **rails-performance**, **rails-database-performance** — caching/ETags/N+1 and schema/index audits.
+- **rails-migrations** — safe zero-downtime migration patterns: `strong_migrations` gem, concurrent index creation, column removal via `ignored_columns`, dual-write column/table renames, `in_batches` data backfills, column type changes, and reversibility.
 - **rails-audit** — top-level health-check of an existing/inherited app (version pinning, bundler-audit/brakeman, exposed secrets, seeds, tech debt) that orchestrates the deep-dive skills and emits a severity-ranked report.
 - **rails-multi-tenancy**, **rails-security**, **rails-project-setup**.
 - **rails-api** — API-only and JSON API design: `Api::BaseController` setup, namespace versioning, Jbuilder/Blueprinter serialization, CORS with rack-cors, offset (pagy) and keyset/cursor pagination, standardized JSON error responses, authentication guidance, and request-spec/Minitest patterns.
