@@ -11,3 +11,6 @@ mise.local.toml
 
 # jscpd report output
 report/
+
+# per-agent git worktrees
+.worktrees/
