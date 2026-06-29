@@ -1,6 +1,6 @@
 ---
 name: rails-testing
-description: Use when writing tests with fixtures, system tests, VCR cassettes, and parallel execution
+description: Use when writing tests with fixtures, system tests, VCR cassettes, and parallel execution, or when profiling/speeding up a slow test suite (Stackprof, Speedscope, TestProf)
 ---
 
 # Rails Testing Patterns
@@ -450,7 +450,68 @@ Defaults that keep a fixtures-based suite fast to read and quick to diagnose:
 
 ---
 
-## 14. Test-Gap Pre-flight — New Code Ships With Tests
+## 14. Profiling & Speeding Up a Slow Suite
+
+A slow suite is a measurement problem before it's an optimisation problem. Profile first; optimise the few things that dominate; stop when the return drops.
+
+**Find the bottleneck (framework-agnostic).** [Stackprof](https://github.com/tmm1/stackprof) samples the call stack while the suite runs; [Speedscope](https://www.speedscope.app/) turns the dump into a flamegraph. This works on a fixtures-based Minitest suite, not just RSpec.
+
+```ruby
+# Minitest: wrap a representative run (one slow file, or the whole suite)
+StackProf.run(mode: :wall, out: "tmp/stackprof.dump", raw: true) do
+  # the test run — e.g. require + run the files, or profile inside a setup hook
+end
+```
+
+```bash
+# RSpec with test-prof's Stackprof integration:
+TEST_STACK_PROF=1 SAMPLE=1000 bin/rspec
+# then open tmp/stackprof-*.json (or the .dump) at https://www.speedscope.app/
+```
+
+Open the dump in Speedscope and use the **Sandwich** view — it ranks frames by total time, so the suite's real cost (a factory cascade, an over-eager callback, an unmemoised lookup) surfaces at the top.
+
+**Mindset:**
+- **Baseline first.** Capture the suite's time before and after every change — optimisation you didn't measure is a guess.
+- **Optimise the highest-impact shared thing.** The fixture, factory, or `setup` block touched by the *most* tests gives the most return. A 50ms win on the `users` fixture beats a 2s win on one rarely-run file.
+- **Stop when the return drops.** As the article puts it: if it's taking four hours to shave one second off the suite, reconsider your priorities.
+
+**Disable expensive callbacks in tests by default (opt in per-test).** The single most reusable idea here: expensive Active Record callbacks — history/audit tracking, denormalised counters, external pushes — fire on almost every saved record but are asserted on by ~1% of tests. Give the behaviour a `Testing` module with explicit toggles, switch it **off** globally in `test_helper.rb`, and turn it **on** only in the handful of tests that test the callback itself.
+
+```ruby
+# app/models/concerns/history/testing.rb
+module History::Testing
+  def fake!  = Thread.current[:history_real] = false   # default in tests
+  def real!  = Thread.current[:history_real] = true
+  def faking? = !Thread.current[:history_real]
+end
+
+# the callback no-ops while faking
+after_save :record_history, unless: -> { History.faking? }
+```
+
+```ruby
+# test/test_helper.rb — off by default
+setup { History.fake! }
+teardown { History.real! }
+
+# only where the side effect IS the contract:
+test "saving a card records history" do
+  History.real!
+  cards(:logo).update!(title: "Renamed")
+  assert_equal 1, cards(:logo).history_entries.count
+end
+```
+
+This is the same instinct as Pattern 10 (drain jobs explicitly, never the `:inline` adapter) and Pattern 11 (config toggles over mocks): the default test path does the *least* work that still proves the unit, and you opt into the expensive path only where it's under test. See [[rails-models]] for the callback patterns themselves.
+
+**Inherited a factory-based RSpec suite?** Our suites are fixtures-first, and **fixtures already load once and are shared across the whole suite** — which is exactly what FactoryBot helpers like `let_it_be`, `before_all`, and `create_default` reinvent. Don't add them to a fixtures suite (and don't reach for a database-cleaner gem — fixtures wrap each test in a transaction already). *But* when you inherit a factory-based suite you can't convert, [TestProf](https://test-prof.evilmartians.io/) is the toolbox: `RSpecDissect` shows time spent in `let`/`before`, `FactoryProf` (`FPROF=flamegraph bin/rspec`) finds factory cascades, and `let_it_be`/`AnyFixture` share data across a file. Migrate the slowest files first, measuring each one.
+
+*Source: [Evil Martians — "Railing against time"](https://evilmartians.com/chronicles/railing-against-time-tools-and-techniques-that-got-us-5x-faster-results).*
+
+---
+
+## 15. Test-Gap Pre-flight — New Code Ships With Tests
 
 Before writing or finishing a change, scope what moved and confirm each piece has a test:
 
@@ -484,6 +545,9 @@ If a changed file has **no** corresponding test, write one — new code ships wi
 | `VCR_RECORD=true bin/rails test` | Record new VCR cassettes |
 | `COVERAGE=1 bin/rails test` | Run with SimpleCov; read `coverage/coverage.json` for the diff |
 | `git diff main...HEAD --name-only` | Scope changed files → map each to its `*_test.rb` |
+| `StackProf.run(mode: :wall, out: …) { … }` | Profile a slow suite; open the dump in Speedscope (Sandwich view) |
+| `TEST_STACK_PROF=1 SAMPLE=1000 bin/rspec` | Stackprof-profile an inherited RSpec suite (test-prof) |
+| `FPROF=flamegraph bin/rspec` | Find factory cascades in an inherited factory-based suite (TestProf) |
 
 | Pattern | When to Use |
 |---------|-------------|

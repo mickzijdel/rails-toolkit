@@ -10,7 +10,7 @@ gotchas skill, and a Rails-detection session hook.
 - **rails-philosophy** — vanilla Rails, rich models, REST everything, Solid Stack, Hotwire first.
 - **rails-style** — method ordering, conditionals, REST routing, naming, and enforcing style on AI-generated code with a RuboCop hook.
 - **rails-models**, **rails-controllers**, **rails-jobs**, **rails-turbo**, **rails-stimulus**, **rails-viewcomponents**, **rails-activestorage** — area guides.
-- **rails-testing** — fixtures, system tests, VCR, parallel execution, SimpleCov coverage checks, and test-gap pre-flight.
+- **rails-testing** — fixtures, system tests, VCR, parallel execution, SimpleCov coverage checks, test-gap pre-flight, and profiling/speeding up a slow suite (Stackprof, Speedscope, TestProf).
 - **rails-clean-test-output** — eliminate noisy test output (warnings, stray puts/p/pp, deprecations) one issue at a time with per-fix verification and commits; detects RSpec vs Minitest, and replaces logging `p`s with severity-appropriate `Rails.logger` calls. Wraps thoughtbot's vendored `clean-rspec-output` skill.
 - **rails-performance**, **rails-database-performance** — caching/ETags/N+1 and schema/index audits.
 - **rails-migrations** — safe zero-downtime migration patterns: `strong_migrations` gem, concurrent index creation, column removal via `ignored_columns`, dual-write column/table renames, `in_batches` data backfills, column type changes, and reversibility.
