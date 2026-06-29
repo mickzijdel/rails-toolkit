@@ -532,6 +532,40 @@ If a changed file has **no** corresponding test, write one — new code ships wi
 
 ---
 
+## 16. One-line Declaration Checks with shoulda-matchers (optional)
+
+`shoulda-matchers` collapses the boilerplate of asserting a model's *declarations* — validations, associations, enums — into one-liners. Under Minitest it pairs with `shoulda-context`, which supplies the `should` class macro.
+
+```ruby
+# Gemfile
+group :test do
+  gem "shoulda-matchers"
+  gem "shoulda-context"   # supplies the `should` macro under Minitest
+end
+
+# test/test_helper.rb (after Rails is loaded — see Pattern 1)
+Shoulda::Matchers.configure do |config|
+  config.integrate do |with|
+    with.test_framework :minitest
+    with.library :rails
+  end
+end
+```
+
+```ruby
+# test/models/post_test.rb
+class PostTest < ActiveSupport::TestCase
+  should validate_presence_of(:title)
+  should belong_to(:account)
+  should have_many(:comments).dependent(:destroy)
+  should define_enum_for(:status).with_values(%w[ draft published ])
+end
+```
+
+**Keep it to declarations.** A matcher proves the declaration *exists*; it doesn't exercise what the model *does*. `should validate_presence_of(:title)` restates the validation — it never drives a blank title through a real request. For anything conditional (custom validators, state machines, composed scopes), write the behaviour test (Pattern 13). A wall of matchers is not a substitute for testing behaviour; it's optional sugar for the wiring you'd otherwise restate by hand.
+
+---
+
 ## Quick Reference
 
 | Command | Description |
@@ -562,3 +596,4 @@ If a changed file has **no** corresponding test, write one — new code ships wi
 | `perform_enqueued_jobs { ... }` | Explicitly run jobs (never `:inline` adapter) |
 | `assert_enqueued_with job: SomeJob` | Assert enqueueing without running the job |
 | Config toggle (not `.stubs`) | Stub external services when the suite has no mocking library |
+| `should validate_presence_of(:x)` | One-line model declaration check (shoulda-matchers; keep behaviour in real tests) |

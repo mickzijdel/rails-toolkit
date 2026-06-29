@@ -207,6 +207,62 @@ class Account::SettingsController < ApplicationController
 end
 ```
 
+### When role gates aren't enough: Pundit
+
+The concern above is right for *coarse* gates (`admin?`, `staff?`). When authorization becomes *per-resource* — "can **this** user edit **that** post?" — routing every rule through `before_action` filters turns controllers into a tangle. Reach for **Pundit**: one plain-Ruby policy object per resource, denying by default, trivial to unit-test.
+
+```ruby
+# app/policies/application_policy.rb
+class ApplicationPolicy
+  attr_reader :user, :record
+  def initialize(user, record) = (@user, @record = user, record)
+
+  def update? = false   # deny by default; subclasses open up
+
+  class Scope
+    def initialize(user, scope) = (@user, @scope = user, scope)
+    def resolve = raise NotImplementedError
+  end
+end
+
+# app/policies/post_policy.rb
+class PostPolicy < ApplicationPolicy
+  def update? = record.account == user.account && (user.admin? || record.author == user)
+
+  class Scope < Scope
+    def resolve = @scope.where(account: @user.account)
+  end
+end
+```
+
+```ruby
+class PostsController < ApplicationController
+  include Pundit::Authorization
+  after_action :verify_authorized,    except: :index
+  after_action :verify_policy_scoped, only:   :index
+
+  def index = (@posts = policy_scope(Post))
+
+  def update
+    @post = Post.find(params[:id])
+    authorize @post                       # raises Pundit::NotAuthorizedError unless update?
+    @post.update!(permitted_attributes(@post))
+  end
+end
+```
+
+**Choosing an authorization approach:**
+
+| Need | Reach for |
+|---|---|
+| Coarse role gates (`admin?`, `staff?`) | The concern + `before_action` above — no gem |
+| Per-resource rules across many models | **Pundit** — plain policy objects, easy to test, scales with the model count |
+| (avoid as the default) | **CanCanCan** centralises every rule in one `Ability` DSL; fine while small, but the single file becomes a merge bottleneck and is harder to test as rules grow. Prefer Pundit's per-resource objects. |
+
+`policy_scope` is also the cleanest place to enforce tenant isolation on collections — fold `Current.account` into the policy `Scope` so `index` can't leak across tenants ([[rails-multi-tenancy]], Pattern 6 below).
+
+**Authentication, by the same logic:** the built-in Rails 8 flow (Patterns 1–2 — magic links, DB sessions, `has_secure_password`) is the default — you own the code and add no dependency. Reach for **Devise** only when you specifically want its module ecosystem (`confirmable`, `lockable`, `omniauth`) and don't want to build it, not as a reflex.
+
 ---
 
 ## 4. Bearer Token API Access
