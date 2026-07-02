@@ -45,6 +45,31 @@ gem "mission_control-jobs"     # web UI for Solid Queue
 - importmap-rails/no-Node is the default for *new* apps, but apps with heavier JavaScript needs may run **Vite** (+ Tailwind, Stimulus) alongside Propshaft, with Propshaft still serving page-specific assets from `app/assets`. Don't migrate such an app to importmaps.
 - When Node packages are involved, use **pnpm** — not npm, yarn, or bun.
 
+### Optional add-on gems (beyond the defaults)
+
+The stack above is everything a new app *needs*. The toolkit blesses a short list of add-ons beyond it — reach for each only when the need is real; the linked skill covers it in depth.
+
+```ruby
+# Gemfile — add only what the app actually uses
+gem "simple_form"     # form-builder DSL (DRYs labels/wrappers); plain `form_with` is fine too
+gem "friendly_id"     # SEO slugs in URLs — see [[rails-models]]
+gem "pundit"          # per-resource authorization policies — see [[rails-security]]
+
+group :development, :test do
+  gem "stackprof"       # CPU/wall profiler — see [[rails-performance]] / [[rails-testing]]
+  gem "test-prof"       # test-suite profiling (mainly inherited factory suites) — see [[rails-testing]]
+end
+
+group :test do
+  gem "shoulda-matchers" # one-line model declaration checks — see [[rails-testing]]
+  gem "shoulda-context"  # `should` macro for Minitest
+end
+```
+
+**Already standard elsewhere in the toolkit** (don't re-decide these): `pagy` (pagination — [[rails-api]]), `prosopite` (N+1 detection — [[rails-performance]]), `simplecov` + `simplecov_json_formatter` (coverage — [[rails-testing]]), `bundler-audit` + `brakeman` (security audit — [[rails-audit]]).
+
+**Deliberately *not* recommended** (a default already covers the need): `kaminari` → use `pagy`; `bullet` → use `prosopite`; `good_job` → use `solid_queue`; `devise` → Rails 8 built-in auth ([[rails-security]]); `factory_bot`/`faker` → fixtures-first ([[rails-testing]]); `dry-rb`/Sorbet/`reek` → against the vanilla-Rails grain ([[rails-philosophy]]).
+
 ---
 
 ## 2. Solid Queue Configuration

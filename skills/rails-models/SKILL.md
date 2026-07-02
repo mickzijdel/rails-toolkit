@@ -333,7 +333,33 @@ end
 
 ---
 
-## 13. Anti-Patterns to Avoid
+## 13. Slugged URLs with FriendlyId (optional)
+
+37signals apps often just use ids (or `signed_id` for unguessable references — [[rails-security]]). When you genuinely want human/SEO-friendly URLs (`/teams/acme`, not `/teams/42`), `friendly_id` slugs the record without giving up `find`:
+
+```ruby
+# Gemfile → gem "friendly_id"
+# bin/rails generate migration AddSlugToTeams slug:string:uniq
+
+class Team < ApplicationRecord
+  extend FriendlyId
+  friendly_id :name, use: :slugged   # fills `slug` from `name` on create
+end
+```
+
+```ruby
+# friendly.find accepts a slug OR an id, so old numeric links keep resolving
+@team = Current.account.teams.friendly.find(params[:id])
+```
+
+**Key Points:**
+- **Scope the lookup through the tenant/owner** (`Current.account.teams`, not `Team`). A bare `Team.friendly.find` is the same cross-tenant leak as `Team.find` — see [[rails-security]] and [[rails-multi-tenancy]].
+- Slugs are **not secrets**. For unguessable references use `model.signed_id`, not a slug.
+- Add `use: %i[ slugged history ]` when URLs must keep working after a rename (it tracks old slugs and redirects).
+
+---
+
+## 14. Anti-Patterns to Avoid
 
 A few ActiveRecord defaults bite later. Prefer the right column on the right:
 

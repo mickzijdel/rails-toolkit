@@ -74,6 +74,20 @@ local linters = new Mapping<String, Step> {
         glob = List("**/*.sh", "**/*.py")
         check = "bash scripts/run-jscpd.sh python,bash"
     }
+    // GitHub Actions workflow linter — schema/expression/`needs:` correctness that SHA-pinning
+    // and zizmor don't cover (typo'd keys, bad ${{ }} refs, undefined job deps). hk builtin,
+    // glob-gated to .github/workflows/*.yml|yaml; needs `actionlint` from mise (mise.toml).
+    // `-shellcheck=` turns OFF actionlint's shellcheck-of-`run:` pass: our run: blocks
+    // deliberately word-split (`shellcheck $files`) which trips SC2086, and real *.sh files are
+    // already covered by the dedicated shellcheck step.
+    ["actionlint"] = (Builtins.actionlint) {
+        check = "actionlint -shellcheck= {{ files }}"
+    }
+    // GitHub Actions security static analysis. hk builtin — globs .github/workflows/*.yml,
+    // .github/dependabot.yml and **/action.yml, so it only fires when a workflow/action file
+    // is staged. Flags credential persistence, template injection, over-broad GITHUB_TOKEN
+    // permissions, etc. (see the github-actions skill). Needs `zizmor` from mise (mise.toml).
+    ["zizmor"] = Builtins.zizmor
     // Secret scanning (defense-in-depth alongside fnox). hk builtin.
     ["gitleaks"] = Builtins.gitleaks
     // Block accidentally-committed large files. hk builtin.

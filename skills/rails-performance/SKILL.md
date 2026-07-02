@@ -348,6 +348,34 @@ end
 
 ---
 
+## 16. Profiling Hotspots with Stackprof
+
+When a request or job is slow and the N+1 tools (§8) come up clean, the cost is in Ruby — profile *where* before optimising. `stackprof` is the sampling profiler; pair it with [Speedscope](https://www.speedscope.app/) for a flamegraph.
+
+```ruby
+# Gemfile
+group :development do
+  gem "stackprof"
+end
+```
+
+```ruby
+# Wrap a hot block — a slow action, a report builder, a job's perform
+StackProf.run(mode: :wall, out: "tmp/stackprof.dump", raw: true) do
+  ExpensiveReport.new(account).generate
+end
+```
+
+```bash
+stackprof tmp/stackprof.dump --text     # top frames by time
+stackprof tmp/stackprof.dump --method 'ExpensiveReport#generate'   # drill into one
+# or open the dump at https://www.speedscope.app/ (Sandwich view ranks frames by total time)
+```
+
+For continuous in-page timing during development, `rack-mini-profiler` shows per-request SQL and render cost inline. To profile the **test suite** rather than the app, use the same tool via [[rails-testing]] §14. Either way: measure, fix the top frame, re-measure — never optimise a frame you didn't see at the top.
+
+---
+
 ## Quick Reference
 
 | Pattern | When to Use |
@@ -364,5 +392,6 @@ end
 | `geared_pagination` | Cursor-based pagination |
 | `expires_in 30.seconds, public: true` | CDN/browser caching for public pages |
 | `connected_to(role: :reading)` | Route GETs / read-only jobs to replicas |
+| `StackProf.run(mode: :wall) { … }` | Profile a slow request/job; read with `stackprof --text` or Speedscope |
 | Timeouts + rescue → degraded 200 | Keep search/autocomplete failures from becoming outages |
 | YJIT / jemalloc / autotuner / thruster | Runtime-level wins (memory trade-offs noted above) |

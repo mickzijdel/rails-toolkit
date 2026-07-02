@@ -18,6 +18,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
       - uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d # v4.2.0
       - name: Run shellcheck
         # *.sh/*.bash plus extensionless shell scripts detected by a line-1 shebang (bin/foo,
@@ -53,6 +55,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
       - name: Install uv
         uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
         with:
@@ -71,9 +75,26 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0 # gitleaks git scans the full commit history
+          persist-credentials: false
       - uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d # v4.2.0
       - name: Scan git history for secrets
         run: mise exec -- gitleaks git --redact --no-banner .
+
+  # GitHub Actions workflow checks — mirrors the hk `actionlint` + `zizmor` steps. One job runs
+  # both over the workflow files: actionlint (schema/expression/`needs:` correctness; its
+  # shellcheck-of-run: pass is off, see the hk step) then zizmor (security — credential
+  # persistence, template injection, over-broad GITHUB_TOKEN, …; offline audits only, no token).
+  actions-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d # v4.2.0
+      - name: Lint workflows (actionlint)
+        run: actionlint -shellcheck=
+      - name: Scan workflows with zizmor
+        run: zizmor --no-progress .github/workflows/
 
   # Noisier audits — mirror the hk `check` hook (not run on pre-commit).
   audit:
@@ -82,6 +103,7 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
+          persist-credentials: false
       - name: Install uv
         uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
         with:
