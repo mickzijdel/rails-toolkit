@@ -19,6 +19,7 @@ gotchas skill, and a Rails-detection session hook.
 - **rails-multi-tenancy**, **rails-security**, **rails-project-setup**.
 - **rails-api** — API-only and JSON API design: `Api::BaseController` setup, namespace versioning, Jbuilder/Blueprinter serialization, CORS with rack-cors, offset (pagy) and keyset/cursor pagination, standardized JSON error responses, authentication guidance, and request-spec/Minitest patterns.
 - **rails-mailers** — ActionMailer setup: shallow mailers triggered from commit hooks, multipart HTML/text templates with `premailer-rails` inlining, i18n subjects, `/rails/mailers` previews, `letter_opener` for local delivery, reusing the `rails-jobs` retry concern for delivery errors, bounce/complaint suppression, and `assert_emails`/`assert_enqueued_email_with` testing.
+- **rails-i18n** — internationalization: locale file organization and lazy lookup, pluralization, number/date/currency formatting, per-request locale selection with `I18n.with_locale`, fallbacks for partially-translated locales, translated model/attribute/validation names, catching missing/unused keys with `i18n-tasks`, and testing translation coverage.
 
 Many code examples are extracted from 37signals' Fizzy codebase and STYLE.md; they
 illustrate the patterns and are not files in this repository or yours.
