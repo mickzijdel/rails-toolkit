@@ -18,6 +18,8 @@ useDefault = true
 [allowlist]
 description = "gitignored local artifacts + local-only secret files (never committed)"
 paths = [
+  '''^\.worktrees/''',                # in-repo git worktrees — separate checkouts, not this repo's content
+  '''^\.claude/worktrees/''',         # native worktree tool location — separate checkouts, scanned by their own repo
   '''^\.env''',                        # dotenv — gitignored
   '''^log/''', '''^tmp/''',            # Rails runtime artifacts
   '''^\.venv/''',                      # Python (shell/py stacks)
