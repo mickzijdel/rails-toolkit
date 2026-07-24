@@ -354,21 +354,26 @@ Keep it to one line per action; the docstring describes the route, not the imple
 `params` is an `ActionController::Parameters`, and because it quacks like a Hash it's tempting to treat it as a scratchpad: normalise a value, delete a key a third-party API chokes on, merge in a default. Don't. `params` is **shared request state**. Every later line in the request — and any other code the params flow into (`update`, `create!`, a job, a serializer) — reads from the same object. Mutate it in one spot and you've silently changed the input for everything downstream. It's a debugging nightmare: the data is present at the top of the action and gone by the bottom, with nothing in the diff of the failing code to explain where it went.
 
 ```ruby
-# Bad — mutating the request's params in place
+# Bad — writing back into the request's params
 def create
-  params[:q] = params[:q].gsub("louve", "louvre")   # default/normalise
-  params.delete(:preferences)                        # strip a key the API rejects
-  params.merge!(defaults)                            # inject defaults
+  params[:title] = params[:title].strip        # normalise in place
+  params.delete(:honeypot)                      # drop a field before handing off
+  params.merge!(account: Current.account)       # inject a value
   Thing.create!(thing_params)
 end
 
-# Good — derive a *new* value/hash; leave params untouched
+# Good — read from params freely; build a SEPARATE hash and shape that
 def create
-  query    = params[:q].gsub("louve", "louvre")
-  attrs    = thing_params.except(:preferences).merge(defaults)  # non-bang: returns copies
+  attrs = thing_params.merge(account: Current.account)  # non-bang merge → a new copy
+  attrs[:title] = attrs[:title].to_s.strip              # []= on OUR copy is fine — attrs isn't params
   Thing.create!(attrs)
 end
 ```
+
+Two things make the "good" version fine, and they're the crux of the rule:
+
+- **The rule is "don't mutate `params`", not "never merge or assign".** `merge` and `[]=` are perfectly fine the moment the receiver is an object *you* own (`attrs`) rather than the shared `params`.
+- **Bang vs non-bang matters even on a copy.** `merge`/`except` return a **new** object; only `merge!`/`except!`/`delete` mutate the receiver in place. And `:honeypot` needs no handling at all — `thing_params` simply never permitted it (see Pattern 4), so it's already gone; reaching into `params` to delete it was solving a problem strong params already solved.
 
 **The aliasing trap.** Assigning `params` to another variable does **not** copy it — both names point at the same object, so mutating the "copy" mutates `params`:
 

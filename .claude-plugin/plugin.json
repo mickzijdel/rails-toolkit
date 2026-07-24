@@ -1,7 +1,7 @@
 {
   "name": "rails-toolkit",
   "description": "37signals-style Rails skills (philosophy, style, models, controllers, jobs, mailers, testing, Turbo, Stimulus, security, performance, multi-tenancy, ActiveStorage, ViewComponents, API, safe migrations, I18n) plus a rails-core gotchas skill, a test-output cleanup skill (RSpec/Minitest), a Rails-detection session hook, and a RuboCop autocorrect hook for AI-edited Ruby files.",
-  "version": "1.15.0",
+  "version": "1.15.1",
   "author": {
     "name": "Mick Zijdel"
   },
