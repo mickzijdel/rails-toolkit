@@ -349,6 +349,48 @@ Keep it to one line per action; the docstring describes the route, not the imple
 
 ---
 
+## Pattern 11: Treat `params` as Read-Only — Never Mutate It
+
+`params` is an `ActionController::Parameters`, and because it quacks like a Hash it's tempting to treat it as a scratchpad: normalise a value, delete a key a third-party API chokes on, merge in a default. Don't. `params` is **shared request state**. Every later line in the request — and any other code the params flow into (`update`, `create!`, a job, a serializer) — reads from the same object. Mutate it in one spot and you've silently changed the input for everything downstream. It's a debugging nightmare: the data is present at the top of the action and gone by the bottom, with nothing in the diff of the failing code to explain where it went.
+
+```ruby
+# Bad — mutating the request's params in place
+def create
+  params[:q] = params[:q].gsub("louve", "louvre")   # default/normalise
+  params.delete(:preferences)                        # strip a key the API rejects
+  params.merge!(defaults)                            # inject defaults
+  Thing.create!(thing_params)
+end
+
+# Good — derive a *new* value/hash; leave params untouched
+def create
+  query    = params[:q].gsub("louve", "louvre")
+  attrs    = thing_params.except(:preferences).merge(defaults)  # non-bang: returns copies
+  Thing.create!(attrs)
+end
+```
+
+**The aliasing trap.** Assigning `params` to another variable does **not** copy it — both names point at the same object, so mutating the "copy" mutates `params`:
+
+```ruby
+mine = params
+mine.delete(:q)   # params[:q] is now gone too
+```
+
+`.dup`/`.clone` only shallow-copy, so nested hashes are still shared. If you genuinely need a mutable structure, build your own: `params.permit(...).to_h` gives a plain, detached `Hash` you can do anything to.
+
+**Where the need really comes from.** Almost every in-place mutation is a workaround for something that belongs elsewhere:
+
+| Temptation | Do this instead |
+|---|---|
+| Set a default value | Default in the DB column, the model (`attribute :x, default:`), or `before_validation` |
+| Normalise user input | Model `normalizes :attr, with:` (Rails 7.1+), or derive a local before use |
+| Strip a key a 3rd-party API rejects | Build the API payload as its own hash from permitted params — don't reach back into `params` |
+
+The mechanical version of this rule is enforceable with a small custom RuboCop cop — see [[rails-style]] §10.
+
+---
+
 ## Quick Reference
 
 | Pattern | When to Use |
@@ -364,3 +406,4 @@ Keep it to one line per action; the docstring describes the route, not the imple
 | URL as State | GET actions with filters, tabs, search, or sort |
 | Verb→noun nested resource | Naming a non-CRUD action (archive→`ArchivesController#create`) |
 | `# GET /posts/:id` docstrings | Every public action — scannable route map |
+| Never mutate `params` | Always — derive a new hash; `params` is shared request state |

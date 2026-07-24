@@ -294,6 +294,63 @@ A hook stops the agent from *silently shipping* offenses; a rules file stops it 
 - **If a cop genuinely doesn't fit** this codebase, surface it in the final response and let the human decide (adjust the config vs. write a real fix) — don't silence it unilaterally.
 - **Never silence `Rails/OutputSafety`.** `html_safe` and `raw` are XSS vectors; if a specific use is truly safe, surface it for the user to approve rather than disabling the cop. See [[rails-security]] for CSP/XSS context.
 
+### Beyond omakase: a custom cop for a rule it can't express
+
+omakase covers mechanical consistency; it has no cop for a *semantic* rule like "never mutate `params`" (see [[rails-controllers]] Pattern 11). **No upstream cop covers this** either — `rubocop-rails` ships `Rails/StrongParameters` and `Rails/StrongParametersExpect`, but those are about *permitting*, not *mutating*. When you have a rule that specific and no cop exists, a ~40-line custom cop makes it enforceable. Drop this into your project:
+
+`lib/rubocop/cop/custom/params_mutation.rb`:
+
+```ruby
+# frozen_string_literal: true
+
+module RuboCop
+  module Cop
+    module Custom
+      # Flags in-place mutation of the request `params` object. `params` is
+      # shared request state, not a scratchpad — build a separate hash instead.
+      # Heuristic: flags a mutating call whose *immediate* receiver is a bare
+      # `params`. It cannot follow aliases (`p = params; p.delete`) — static
+      # analysis does not track that.
+      class ParamsMutation < Base
+        MSG = "Do not mutate `params`; build a separate hash instead."
+
+        MUTATING_METHODS = %i[
+          []= delete delete_if merge! update store deep_merge!
+          except! extract! slice! compact! reject! select! keep_if clear
+          transform_keys! transform_values! deep_transform_keys! deep_transform_values!
+        ].freeze
+
+        def_node_matcher :bare_params?, "(send nil? :params)"
+
+        def on_send(node)
+          return unless MUTATING_METHODS.include?(node.method_name)
+          return unless bare_params?(node.receiver)
+
+          add_offense(node)
+        end
+        alias on_csend on_send   # also catch `params&.delete(...)`
+      end
+    end
+  end
+end
+```
+
+Wire it up in `.rubocop.yml` (a project-local `Custom/` department sidesteps any clash with the extracted `Rails/` namespace):
+
+```yml
+require:
+  - ./lib/rubocop/cop/custom/params_mutation.rb
+
+Custom/ParamsMutation:
+  Enabled: true
+  Include:
+    - app/controllers/**/*.rb
+```
+
+It flags `params[:x] = …`, `params.delete`, `params.merge!`, `params.update`, `params&.delete`, and the other bang mutators — while leaving reads, non-bang copies (`params.except`, `params.permit(...).merge`), and mutations of a plain hash or a `.dup` alone. **Limitation:** it only sees a *bare* `params` receiver; it can't catch mutation through an alias (`p = params; p.delete`), which needs flow analysis. Treat it as a high-signal tripwire, not a proof.
+
+**Upstreaming.** Rails-specific cops live in `rubocop-rails`, not `rubocop/rubocop` (RuboCop core is pure-Ruby only), added under its single `Rails` department via `bundle exec rake 'new_cop[Rails/ParamsMutation]'`. It's a plausible contribution — the mutation methods are already deprecated on `ActionController::Parameters` — but maintainers weigh false-positive rate and general applicability, and the alias blind spot is a real weakness. Ship it as a project-local cop first; propose upstream once it's proven low-noise on a real codebase.
+
 ---
 
 ## Summary Checklist
