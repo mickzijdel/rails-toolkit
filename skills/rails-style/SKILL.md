@@ -349,7 +349,22 @@ Custom/ParamsMutation:
 
 It flags `params[:x] = …`, `params.delete`, `params.merge!`, `params.update`, `params&.delete`, and the other bang mutators — while leaving reads, non-bang copies (`params.except`, `params.permit(...).merge`), and mutations of a plain hash or a `.dup` alone. **Limitation:** it only sees a *bare* `params` receiver; it can't catch mutation through an alias (`p = params; p.delete`), which needs flow analysis. Treat it as a high-signal tripwire, not a proof.
 
-**Upstreaming.** Rails-specific cops live in `rubocop-rails`, not `rubocop/rubocop` (RuboCop core is pure-Ruby only), added under its single `Rails` department via `bundle exec rake 'new_cop[Rails/ParamsMutation]'`. It's a plausible contribution — the mutation methods are already deprecated on `ActionController::Parameters` — but maintainers weigh false-positive rate and general applicability, and the alias blind spot is a real weakness. Ship it as a project-local cop first; propose upstream once it's proven low-noise on a real codebase.
+**Share it across projects — a personal extension gem.** A per-project `Custom/` cop is fine for one repo, but copy-pasting it into every app rots fast. The durable home is a personal RuboCop extension gem — the same shape as `rubocop-rails`/`rubocop-performance`. This toolkit's owner keeps one at [`mickzijdel/rubocop-mick`](https://github.com/mickzijdel/rubocop-mick), where `ParamsMutation` lives as `Mick/ParamsMutation`. Consuming it is two lines — a github-sourced gem plus the `plugins:` key (the gem ships its cops' defaults, so no `inherit_gem:` is needed):
+
+```ruby
+# Gemfile (dev group)
+gem "rubocop-mick", github: "mickzijdel/rubocop-mick", require: false
+```
+
+```yml
+# .rubocop.yml
+plugins:
+  - rubocop-mick
+```
+
+Update the cop once, `bundle update rubocop-mick`, and every project picks it up. In this owner's setup the dev-hooks `dev-env-setup` standard (v22+) wires those two lines into every Ruby repo automatically.
+
+**Upstreaming.** Rails-specific cops live in `rubocop-rails`, not `rubocop/rubocop` (RuboCop core is pure-Ruby only), added under its single `Rails` department via `bundle exec rake 'new_cop[Rails/ParamsMutation]'`. It's a plausible contribution — the mutation methods are already deprecated on `ActionController::Parameters` — but maintainers weigh false-positive rate and general applicability, and the alias blind spot is a real weakness. Ship it in your own extension gem first; propose upstream once it's proven low-noise on a real codebase.
 
 ---
 
