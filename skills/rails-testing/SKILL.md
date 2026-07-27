@@ -212,6 +212,41 @@ Include `VcrTestHelper` in tests that hit HTTP; record new cassettes with `VCR_R
 
 Unit/integration tests parallelize across CPUs (Pattern 1); system tests must run with `PARALLEL_WORKERS=1` — they can't run reliably in parallel. Also use `PARALLEL_WORKERS=1` when debugging flaky tests.
 
+**Adding `parallelize` to an existing suite is not a one-line change.** Rails gives each worker its own *database*, and nothing else. Every other piece of global state stays shared, so a suite that has only ever run single-process has usually grown dependencies on that. Audit these four before you flip it on — measured on a real 3027-test suite where every one of them bit:
+
+| Shared state | Why it breaks | Fix |
+|---|---|---|
+| **`Rails.cache`** | If `config/environments/test.rb` never sets `cache_store`, Rails falls back to a **`FileStore` on `tmp/cache/`** — one directory, shared by every worker, and never rolled back between tests. Rate limiters, `fetch`-memoised lookups and dedupe keys then collide across workers. | `config.cache_store = :memory_store` (per-process, and it also drops a disk round-trip from every cache call in serial runs). Use `:null_store` only if no test round-trips the cache. |
+| **ActiveStorage disk service** | `config/storage.yml`'s `test:` service roots at a single `tmp/storage`. A `teardown` that does `FileUtils.rm_rf(Rails.root.join("tmp", "storage"))` will delete another worker's blobs mid-test. | Suffix the root per worker in `parallelize_setup`, and make the teardown remove *that* root, not the hardcoded path. |
+| **Generator tests** | `Rails::Generators::TestCase` subclasses declaring `destination Rails.root.join("tmp/generators")` share one directory, and `prepare_destination` wipes it. | Suffix `destination_root` per worker too. |
+| **SimpleCov** | Workers overwrite each other's results. | Per-worker `command_name` + merge in `parallelize_teardown`. |
+
+```ruby
+# test/test_helper.rb
+parallelize(workers: :number_of_processors)
+
+parallelize_setup do |worker|
+  svc = ActiveStorage::Blob.service
+  svc.root = "#{svc.root}-#{worker}" if svc.respond_to?(:root=)
+
+  Rails::Generators::TestCase.descendants.each do |klass|
+    klass.destination_root = "#{klass.destination_root}-#{worker}"
+  end
+end
+
+teardown do
+  # NOT the hardcoded tmp/storage — that is another worker's data
+  FileUtils.rm_rf(ActiveStorage::Blob.service.try(:root))
+end
+```
+
+**Reading the failures: DRb errors are noise, not the bug.** Workers ship results to the parent over DRb, so an isolation failure usually surfaces as a wall of `DRb::DRbConnError` / `DRb::DRbServerNotFound` stack traces with no test name. Two rules:
+
+- **Find the one real error underneath.** Grep the log for `Neutered Exception`, `Error:`, or a `#test_` name and ignore the DRb frames — Rails wraps unmarshalable failures (`safe_record`) and the wrapper is what you're seeing.
+- **`no _dump_data is defined for class Binding` means a dev gem is loaded in test.** `better_errors` + `binding_of_caller` attach a `Binding` to exceptions, which cannot be marshalled, so *every* failure becomes an unreportable worker crash and the run neither passes nor finishes. Move them to `group :development` — they were never meant to be in `:development, :test`. (This is the modern, concrete reason to keep dev-only gems out of the test group.)
+
+**Not everything is fork-safe.** A helper that invokes real Rake tasks (`Rails.application.load_tasks` + `Rake::Task#invoke`) can deadlock in a forked worker with `ThreadError: deadlock; recursive locking` while passing perfectly under `PARALLEL_WORKERS=1`. Confirm any suspected parallel-only failure by re-running the same file both ways before you go hunting.
+
 **Sharding across multiple CI jobs:** when a suite outgrows one machine, split it with a queue, never a static file list. Hardcoded slices ("job 3 runs `test/system/a*`–`test/system/m*`") always drift unbalanced, and the build is only as fast as its unluckiest job. With a queue, every worker pulls the next test file as it finishes, so all shards end at roughly the same time (the same work-stealing principle `parallelize` already applies in-process). Tools: `test-queue`, `parallel_tests` (runtime-based balancing), `spec-wrk` (networked queue across GitHub Actions jobs), or paid services like Knapsack Pro.
 
 ---
@@ -454,6 +489,23 @@ Defaults that keep a fixtures-based suite fast to read and quick to diagnose:
 
 A slow suite is a measurement problem before it's an optimisation problem. Profile first; optimise the few things that dominate; stop when the return drops.
 
+**Rule out the machine before you touch the suite.** A laptop on a power-saving governor throttles hard, and nothing in the profile will point at it — every test just looks uniformly slow. On one measured suite, the *identical* 3027 tests took **560s on `power-saver` and 116s on `performance`**: a 4.8x swing with no code change at all. Check first:
+
+```bash
+powerprofilesctl get     # or: cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
+```
+
+The tell is a **local run slower than CI** — CI runners are shared 2-4 core boxes, so if your dev machine loses to one, suspect the machine, not the suite. Don't trust `/proc/cpuinfo` MHz or `scaling_cur_freq` to confirm it; under `intel_pstate`/HWP they read implausibly low (~500 MHz) even on a fast machine. Time a real workload instead.
+
+**Then ask whether the cost is concentrated or diffuse** — it decides which lever can possibly work:
+
+- **Concentrated** (a handful of files or tests dominate) → targeted fixes pay. Profile with Stackprof below.
+- **Diffuse** (a flat distribution — no file over ~5%, median close to mean) → there is no hot spot, and per-test micro-optimisation is the "four hours to shave one second" trap. **Parallelism is the only lever with a real multiplier** (Pattern 5).
+
+A cheap way to tell, with no extra gems: record each test's time and aggregate by file. On the suite above — median 82ms, p90 479ms, slowest file 6.5%, and the ~1600 tests under 100ms adding up to only 9% of the runtime — the answer was plainly "diffuse", and `parallelize` took it from 116s to **27.7s** on 8 workers. That is a 20x total against where it started, and *none* of it came from editing a test.
+
+> **Minitest 6 no longer auto-loads plugins.** `Minitest.load_plugins` became opt-in, so dropping a `minitest/*_plugin.rb` on the load path silently does nothing. To register a custom reporter, require it and push onto `Minitest.extensions` yourself from `test_helper.rb`.
+
 **Find the bottleneck (framework-agnostic).** [Stackprof](https://github.com/tmm1/stackprof) samples the call stack while the suite runs; [Speedscope](https://www.speedscope.app/) turns the dump into a flamegraph. This works on a fixtures-based Minitest suite, not just RSpec.
 
 ```ruby
@@ -574,7 +626,8 @@ end
 | `bin/rails test test/file.rb:42` | Run test at specific line |
 | `bin/rails test:system` | Run system tests |
 | `bin/ci` | Run full CI pipeline |
-| `PARALLEL_WORKERS=1 bin/rails test` | Disable parallel execution (debugging, system tests) |
+| `PARALLEL_WORKERS=1 bin/rails test` | Disable parallel execution (debugging, system tests) — also the control run for confirming a parallel-only failure |
+| `powerprofilesctl get` | Rule out a throttled machine before profiling a "slow" suite (4.8x swing measured) |
 | `SYSTEM_TESTS_BROWSER=true bin/rails test:system` | See browser during tests |
 | `VCR_RECORD=true bin/rails test` | Record new VCR cassettes |
 | `COVERAGE=1 bin/rails test` | Run with SimpleCov; read `coverage/coverage.json` for the diff |
