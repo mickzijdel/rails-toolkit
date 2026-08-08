@@ -1,3 +1,8 @@
+---
+name: rails-api
+description: Use when building a JSON API with Rails or adding an API namespace to an existing app — Api::BaseController setup, namespace versioning, serialization, CORS, pagination, standardized JSON errors, and request-spec patterns.
+---
+
 # Rails API
 
 Apply when: building a JSON API with Rails, adding an API namespace to an existing Rails app, or evaluating API design choices.
