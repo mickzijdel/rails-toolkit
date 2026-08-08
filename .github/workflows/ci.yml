@@ -66,6 +66,20 @@ jobs:
       - name: Run tests
         run: uv run pytest --tb=short
 
+  # Toolchain + service versions are pinned in several files at once (mise.toml, the
+  # .<lang>-version files, the Dockerfile ARGs, and the compose/deploy `image:` tags) because
+  # different consumers read different ones, and nothing makes them agree — a bump that misses
+  # one file is silent. Mirrors the hk `versions` step so the gates can't drift. Reads files
+  # only, so it needs no toolchain: the cheapest job in this workflow.
+  versions:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Toolchain and service versions agree across files
+        run: bash scripts/check_version_sync.sh
+
   # Run the MIT-licensed gitleaks CLI (via mise, version-pinned in mise.lock) rather than
   # gitleaks/gitleaks-action: the action requires a paid GITLEAKS_LICENSE on org-owned repos,
   # while the CLI is free for all repos and is exactly what the local hk pre-commit hook runs.

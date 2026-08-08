@@ -54,6 +54,19 @@ local linters = new Mapping<String, Step> {
     ["exec-bit-scripts"] {
         check = "bad=$(git ls-files -s | awk -F'\\t' '$1 ~ /^100644/ { if ((getline line < $2) > 0 && line ~ /^#!/) print $2; close($2) }'); if [ -n \"$bad\" ]; then echo 'Shebang scripts missing the executable bit in the git index. Fix: git update-index --chmod=+x <file>'; echo \"$bad\"; exit 1; fi"
     }
+    // Toolchain + service versions are pinned in several files at once, because different
+    // consumers read different ones: mise.toml for local dev, the .<lang>-version files for
+    // CI's setup-* actions, the Dockerfile ARGs for the production image, and the `image:` tags
+    // in a compose/deploy manifest for what production runs versus what CI tests against.
+    // Nothing makes them agree, so a bump that misses one file is silent — the image builds on a
+    // different Ruby than the tests ran on, or the suite goes green against a database server
+    // nobody deploys. The script checks only the files that exist and prints what it skipped;
+    // CI's `versions` job runs the same script, so the two gates can't drift. Extend the glob if
+    // this repo pins a version somewhere else.
+    ["versions"] {
+        glob = List("mise.toml", ".python-version", "Dockerfile", "docker-compose.yml", "compose.yaml", "config/deploy.yml", ".devcontainer/compose.yaml", ".github/workflows/*.yml")
+        check = "bash scripts/check_version_sync.sh"
+    }
     // --- Audits (dead-code + duplication) ---------------------------------------
     // These run on pre-commit too (not just `check`/CI): vulture is ~0.15s and jscpd
     // ~1s warm online (cooldown resolve + scan), so catching dead code / clones before
