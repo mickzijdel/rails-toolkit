@@ -9,6 +9,12 @@ on:
   pull_request:
     branches: [master]
 
+# Cancel a superseded PR run when a newer push lands on the same PR; never cancel a push
+# to master mid-run (two master pushes are usually sequential commits that both deserve a result).
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 # Default GITHUB_TOKEN to read-only; a job needing more declares its own permissions: block.
 permissions:
   contents: read
