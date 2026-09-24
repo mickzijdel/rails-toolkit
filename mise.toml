@@ -28,7 +28,7 @@ minimum_release_age = "4d"
 [env]
 # dev-env standard version this repo targets (dev-hooks:dev-env-setup). Do not
 # hand-edit — bump it by running the skill's upgrade path.
-DEV_ENV_VERSION = "26"
+DEV_ENV_VERSION = "27"
 # uv uses the Python mise installs, never one of its own. Without only-system uv prefers its
 # managed interpreters over mise's, so local and CI would run different releases; mise's shims
 # apply this [env] locally and mise-action exports it in CI.
