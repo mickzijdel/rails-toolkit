@@ -1,5 +1,4 @@
-# Action versions pinned to current latest (verified 2026-06-09). setup-uv has no floating
-# @v8 major tag, so it is pinned to the exact v8.2.0 release. See dev-hooks:dev-env-setup ›
+# Action versions pinned to current latest (verified 2026-06-09). See dev-hooks:dev-env-setup ›
 # "Keeping GitHub Actions current".
 name: ci
 
@@ -57,10 +56,10 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
-      - name: Install uv
-        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+      - name: Install Python + uv (exact releases from mise.lock)
+        uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d # v4.2.0
         with:
-          enable-cache: true
+          install_args: python uv
       # Plugin/script repos: run the test suite for bundled scripts (see readoc's
       # tests/ + pyproject.toml dev project for the preferred pattern).
       - name: Run tests
@@ -118,10 +117,10 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - name: Install uv
-        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+      - name: Install Python + uv (exact releases from mise.lock)
+        uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d # v4.2.0
         with:
-          enable-cache: true
+          install_args: python uv
       - name: Dead code (vulture, Python incl. extensionless PEP 723 scripts)
         run: |
           # tracked .py + any tracked file with a line-1 python/uv shebang (e.g. bin/foo).

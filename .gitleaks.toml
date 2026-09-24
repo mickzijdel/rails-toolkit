@@ -1,13 +1,14 @@
 # dev-env standard (dev-hooks:dev-env-setup) — gitleaks allowlist.
 #
-# The hk `gitleaks` step (and CI's gitleaks-action, and a local `gitleaks dir`) scan the WHOLE
-# working tree — gitleaks `dir` has no respect-gitignore flag, so it walks gitignored files too.
+# The hk `gitleaks` step (and any local `gitleaks dir`) scans the WHOLE working tree —
+# gitleaks `dir` has no respect-gitignore flag, so it walks gitignored files too.
 # Without this allowlist, any repo with a local `.env`, `log/`, `tmp/`, or a Rails
 # `config/credentials/*.key` produces findings on every commit and `hk run check` is permanently
 # red, even though none of those files are tracked or in history.
 #
-# gitleaks auto-loads `.gitleaks.toml` from the scan root, so the hk builtin picks this up with
-# no `--config` flag. `useDefault = true` keeps the full default ruleset; the allowlist is
+# gitleaks auto-loads `.gitleaks.toml` from the scan root, so the hk builtin and CI's
+# `gitleaks git` job pick this up with no `--config` flag. `useDefault = true` keeps the full
+# default ruleset; the allowlist is
 # PATH-SCOPED to gitignored runtime/secret locations only — app/config SOURCE stays fully scanned,
 # so a real secret hardcoded in code is still caught. (Force-adding a secret into one of these
 # paths with `git add -f` would evade the scan; the env-to-fnox skill is the path to get the
@@ -23,6 +24,12 @@ paths = [
   '''^\.env''',                        # dotenv — gitignored
   '''^log/''', '''^tmp/''',            # Rails runtime artifacts
   '''^\.venv/''',                      # Python (shell/py stacks)
+  # Python bytecode and pytest state, at any depth — `tests/__pycache__/` as much as a
+  # top-level one. Not hypothetical: a .pyc holding a test file's credential-SHAPED
+  # fixtures matched the github-pat rule on bytes that happened to sit next to a `ghp_`
+  # prefix, so `pytest` before `git commit` blocked the commit on a finding in a file
+  # nobody staged, at a path with no obvious connection to the change.
+  '''(^|/)__pycache__/''', '''(^|/)\.pytest_cache/''',
   '''^node_modules/''', '''^vendor/''',
   '''^config/credentials/.*\.key$''',  # Rails master keys (the *.yml.enc blobs stay scanned)
 ]

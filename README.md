@@ -56,7 +56,7 @@ Tooling is pinned with [mise](https://mise.jdx.dev) and pre-commit checks run vi
 [hk](https://hk.jdx.dev). Set up and verify:
 
 ```bash
-mise trust && mise install   # provision hk, shellcheck, shfmt, uv, node, gitleaks (per mise.lock)
+mise trust && mise install   # provision hk, shellcheck, shfmt, uv, python, node, gitleaks (per mise.lock)
 hk install                   # install the git pre-commit hook
 hk run check                 # lint + audits + gitleaks + large-file guard
 uv run pytest                # exercise the bin/ hook scripts as subprocesses

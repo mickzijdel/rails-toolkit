@@ -11,7 +11,7 @@ Bump the plugin version on every commit. Patch version for small fixes, minor ve
 
 This repo follows the dev-hooks dev-env standard (shell/Claude Code plugin stack, `DEV_ENV_VERSION` in `mise.toml`). Tools are pinned via mise + `mise.lock`; pre-commit checks run via hk and are mirrored in CI (`.github/workflows/ci.yml`).
 
-- Provision tools: `mise trust && mise install` (hk, pkl, shellcheck, shfmt, ruff, uv, node, gitleaks).
+- Provision tools: `mise trust && mise install` (hk, pkl, shellcheck, shfmt, ruff, uv, python, node, gitleaks).
 - Install the git hook: `hk install`.
 - Lint + audits (shellcheck/shfmt/ruff, vulture dead-code, jscpd duplication, gitleaks, large-file guard): `hk run check`.
 - Tests: `uv run pytest` — every bundled script in `bin/` must have a test that runs it as a subprocess and asserts on real output (see `tests/test_scripts.py`).

@@ -7,6 +7,7 @@ actionlint = "latest"     # GitHub Actions workflow linter — syntax/expression
 shellcheck = "latest"
 shfmt = "latest"
 uv = "latest"     # runs PEP 723 scripts (`uv run --script`) and the pytest suite
+python = "latest"         # the one Python for tests, local and CI alike (mise.lock holds the exact release)
 ruff = "latest"   # for any *.py scripts in the repo
 node = "latest"            # provides npx, used to run jscpd 5.x (`npx --yes jscpd@latest`)
 # jscpd (duplication) runs via npx — see hk.pkl / .jscpd.json (not a mise tool; jscpd 5.x ships
@@ -27,4 +28,9 @@ minimum_release_age = "4d"
 [env]
 # dev-env standard version this repo targets (dev-hooks:dev-env-setup). Do not
 # hand-edit — bump it by running the skill's upgrade path.
-DEV_ENV_VERSION = "23"
+DEV_ENV_VERSION = "26"
+# uv uses the Python mise installs, never one of its own. Without only-system uv prefers its
+# managed interpreters over mise's, so local and CI would run different releases; mise's shims
+# apply this [env] locally and mise-action exports it in CI.
+UV_PYTHON_PREFERENCE = "only-system"
+UV_PYTHON_DOWNLOADS = "never"
