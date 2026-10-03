@@ -30,8 +30,11 @@ For tables that already have rows, **never** add a non-nullable or unique column
 **Exception:** on PostgreSQL 11+, a `NOT NULL` column with a **constant** (non-volatile)
 `default:` is safe in one migration — it doesn't rewrite the table. A volatile default, or a
 unique column, still takes the steps above.
-See [[rails-models]] for transactions and data-integrity patterns. For the **legacy
-integer-primary-key foreign-key gotcha** when adding a child table, see [[rails-models]].
+
+See [[rails-migrations]] for the full zero-downtime toolkit (strong_migrations, concurrent
+indexes, renames, backfills, column removal). See [[rails-models]] for transactions and
+data-integrity patterns. For the **legacy integer-primary-key foreign-key gotcha** when adding
+a child table, see [[rails-models]].
 
 ### 6. Multi-database apps: `db:rollback` needs the namespaced task
 In an app configured with multiple databases (e.g. `primary` / `queue` / `cache`), a bare
@@ -93,6 +96,7 @@ Factory and fixture changes have cascading effects across the entire suite. Afte
 - Stimulus controllers → [[rails-stimulus]]
 - Caching, ETags, N+1 → [[rails-performance]]
 - Schema/index/query audits → [[rails-database-performance]]
+- Writing or reviewing migrations, especially on tables with production data (zero-downtime patterns, backfills, renames) → [[rails-migrations]]
 - Auditing / reviewing an existing or inherited app, tech-debt health-check → [[rails-audit]]
 - Auth & authorization → [[rails-security]]
 - URL-based tenancy, Current → [[rails-multi-tenancy]]
@@ -100,4 +104,9 @@ Factory and fixture changes have cascading effects across the entire suite. Afte
 - Extracting ViewComponents → [[rails-viewcomponents]]
 - New Rails 8 app setup → [[rails-project-setup]]
 - Writing tests → [[rails-testing]]
+- Noisy test output (warnings, stray `puts`/`p`, deprecations) in RSpec or Minitest → [[rails-clean-test-output]]
+- JSON APIs or an API namespace (versioning, serialization, CORS, pagination, JSON errors) → [[rails-api]]
+- Internationalization: locale files, pluralization, formatting, missing/unused keys → [[rails-i18n]]
+- Logging and observability: structured request logs, tagged logging, parameter filtering, error tracking, health checks → [[rails-logging]]
+- ActionMailer mailers: layouts, previews, delivery, attachments, bounces → [[rails-mailers]]
 - **Upgrading Rails versions** (2.3 → 8.1, breaking changes, deprecations, multi-hop plans) → [[rails-upgrade]] — the vendored OmbuLabs/FastRuby.io upgrade skill. Reach for it whenever an upgrade is on the table; do **not** hand-roll the version bump.
