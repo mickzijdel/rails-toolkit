@@ -1,6 +1,6 @@
 ---
 name: rails-migrations
-description: Use when writing, reviewing, or executing database migrations — especially on tables with existing data in production. Covers safe zero-downtime patterns, the strong_migrations gem, concurrent index creation, column and table renames, data backfills, and removing columns safely. Extends rails-core rule 5 (multi-step nullable columns) with the full toolkit. Triggers on "migration", "add column", "rename column", "backfill", "index", "drop column", "change column type", "zero-downtime".
+description: Use when writing, reviewing, or running database migrations — any schema change (adding, removing, renaming, or retyping columns, tables, and indexes) or data backfill, especially on tables that already hold production data and must stay online. Covers zero-downtime patterns, the strong_migrations gem, concurrent indexes, safe renames and column removal, and batched backfills. Extends rails-core rule 5 with the full toolkit.
 ---
 
 # Safe Rails Migrations
