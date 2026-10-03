@@ -28,9 +28,9 @@ When `strong_migrations` raises, it tells you the safe alternative. Read the mes
 
 ## 2. Adding a column with a default value
 
-**Rails 11+ on PostgreSQL 11+:** adding a `NOT NULL` column with a `default:` is safe — PostgreSQL 11 supports instant non-null column addition via a stored default. Add it directly.
+**On PostgreSQL 11+:** adding a `NOT NULL` column with a **constant** (non-volatile) `default:` is safe — PostgreSQL 11 stores the default in the catalog instead of rewriting the table, so the addition is instant. Add it directly. A volatile default (`default: -> { "gen_random_uuid()" }`, `clock_timestamp()`, …) is evaluated per row and still rewrites the table.
 
-**Older stacks:** the column addition rewrites the table. Use the multi-step pattern from [[rails-core]] rule 5:
+**Older stacks, or a volatile default:** the column addition rewrites the table. Use the multi-step pattern from [[rails-core]] rule 5:
 
 ```ruby
 # Migration 1: add as nullable, no default
@@ -168,8 +168,8 @@ For data migrations, define `down` to undo the backfill, or explicitly raise `Ac
 | Situation | Pattern |
 |-----------|---------|
 | Add nullable column | Direct `add_column` — always safe |
-| Add NOT NULL with default (Rails 11+, Postgres 11+) | Direct — safe |
-| Add NOT NULL with default (older stack) | Nullable → backfill → add constraint (two migrations) |
+| Add NOT NULL with constant default (PostgreSQL 11+) | Direct — safe |
+| Add NOT NULL with default (older stack, or volatile default) | Nullable → backfill → add constraint (two migrations) |
 | Add index on large table | `disable_ddl_transaction!` + `algorithm: :concurrently` |
 | Remove a column | `ignored_columns` first, drop in next deploy |
 | Rename a column | Dual-write sequence (4–5 steps) |
