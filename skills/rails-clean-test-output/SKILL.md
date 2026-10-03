@@ -30,6 +30,11 @@ Read and follow `../../vendor/clean-rspec-output/SKILL.md` end to end — its fi
 isolation before fixing, its one-fix-per-commit discipline, and its commit-message format all
 apply unchanged. The two overrides below take precedence wherever they conflict with it.
 
+One reading note: where the vendored loop warns against "thinking ahead about the fix while
+still locating the source test", read it as a rule about acting — **don't edit code until the
+issue reproduces in one scoped command**. Forming a hypothesis early is fine; applying it early
+is not.
+
 ## Override A — Minitest command map
 
 The vendored workflow hardcodes `bundle exec rspec` commands. When the project uses Minitest,
