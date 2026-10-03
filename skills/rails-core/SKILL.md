@@ -26,6 +26,10 @@ For tables that already have rows, **never** add a non-nullable or unique column
 1. Add the column as **nullable**.
 2. **Backfill** the data.
 3. Add the **constraint** (NOT NULL / unique) in a follow-up migration.
+
+**Exception:** on PostgreSQL 11+, a `NOT NULL` column with a **constant** (non-volatile)
+`default:` is safe in one migration — it doesn't rewrite the table. A volatile default, or a
+unique column, still takes the steps above.
 See [[rails-models]] for transactions and data-integrity patterns. For the **legacy
 integer-primary-key foreign-key gotcha** when adding a child table, see [[rails-models]].
 
