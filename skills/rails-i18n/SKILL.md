@@ -1,6 +1,6 @@
 ---
 name: rails-i18n
-description: Use when adding or auditing internationalization (I18n) — locale file organization, lazy lookup, pluralization, number/date/currency formatting, per-request locale selection, fallbacks, translating validation errors and model/attribute names, and catching missing/unused keys with i18n-tasks. Triggers on "i18n", "internationalization", "translate", "locale", "pluralize", "missing translation", "l10n", "add a language".
+description: "Use when adding or auditing I18n: locale files, pluralization, date, number or currency formats, translated errors, missing or unused keys (i18n-tasks). Triggers on \"i18n\", \"internationalization\", \"translate\", \"locale\", \"pluralize\", \"missing translation\", \"l10n\", \"add a language\"."
 ---
 
 # Rails Internationalization (I18n)

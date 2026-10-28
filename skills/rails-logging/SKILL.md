@@ -1,6 +1,6 @@
 ---
 name: rails-logging
-description: Rails logging and observability — Lograge for structured one-line request logs, tagged logging with request/user context, sensitive parameter filtering, ActiveSupport::Notifications for custom instrumentation, Sentry/error-tracker integration, health check endpoints, and log-level configuration. Use when setting up a new app's observability stack, debugging noisy logs, or adding structured logging.
+description: "Use when setting up a Rails app's logging or observability, debugging noisy logs, or adding structured logging: Lograge, tagged request context, parameter filtering, ActiveSupport::Notifications, Sentry or another error tracker, health checks, log levels."
 ---
 
 # Rails Logging and Observability

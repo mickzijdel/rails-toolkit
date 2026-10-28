@@ -1,6 +1,6 @@
 ---
 name: rails-clean-test-output
-description: Use when a Rails test suite (RSpec or Minitest) prints anything besides test results — warnings, deprecation notices, stray puts/p/pp, leaked log lines — and the user wants that output cleaned up, silenced, or explained. Eliminates it one issue at a time, with per-fix verification and commits; detects which framework the project uses.
+description: Use when a Rails test suite (RSpec or Minitest) prints anything besides results, such as warnings, deprecations, stray puts/p/pp or leaked log lines, and the user wants it cleaned up, silenced or explained.
 ---
 
 # Clean Up Unexpected Rails Test Output

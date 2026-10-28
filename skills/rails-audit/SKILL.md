@@ -1,6 +1,6 @@
 ---
 name: rails-audit
-description: "Use when auditing, reviewing, or doing a health-check of an existing/inherited Rails app — onboarding to a legacy codebase, assessing technical debt, or a pre-engagement code review. Orchestrates the deep-dive rails-* skills and produces a severity-ranked report. Triggers on: code audit, app review, legacy/inherited Rails app, technical debt assessment, 'review my Rails app'."
+description: "Use to audit or health-check an existing or inherited Rails app: onboarding to a legacy codebase, a tech-debt assessment, a pre-engagement code review, or \"review my Rails app\"."
 ---
 
 # Rails App Audit
