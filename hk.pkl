@@ -64,7 +64,7 @@ local linters = new Mapping<String, Step> {
     // CI's `versions` job runs the same script, so the two gates can't drift. Extend the glob if
     // this repo pins a version somewhere else.
     ["versions"] {
-        glob = List("mise.toml", ".python-version", "Dockerfile", "docker-compose.yml", "compose.yaml", "config/deploy.yml", ".devcontainer/compose.yaml", ".github/workflows/*.yml")
+        glob = List("mise.toml", "mise.lock", ".python-version", "Dockerfile", "docker-compose.yml", "compose.yaml", "config/deploy.yml", ".devcontainer/compose.yaml", ".github/workflows/*.yml")
         check = "bash scripts/check_version_sync.sh"
     }
     // --- Audits (dead-code + duplication) ---------------------------------------
@@ -72,11 +72,15 @@ local linters = new Mapping<String, Step> {
     // ~1s warm online (cooldown resolve + scan), so catching dead code / clones before
     // push is worth it. Both carry a glob, so they only fire when a matching file is
     // staged (a docs-only commit skips them). They scan the whole tree, not just {{ files }}.
-    // Dead code. Scans `.` (all *.py, excluding .venv/build) plus any extensionless
-    // tracked file with a python/uv shebang (PEP 723 CLIs like bin/foo).
+    // Dead code. Scans `.` (all *.py) plus any extensionless tracked file with a python/uv
+    // shebang (PEP 723 CLIs like bin/foo). vulture ignores .gitignore, so --exclude is all that
+    // keeps .venv, build/ and dist/ output and in-repo worktrees out. It matches absolute paths,
+    // and a pattern without `*` matches anywhere in them, so every pattern starts at this
+    // checkout: a bare `build` skipped scripts/build_docs.py, and a bare `.worktrees` skipped
+    // every file of a checkout that is itself a worktree.
     ["vulture"] {
         glob = "**/*.py"
-        check = "uvx vulture --min-confidence 80 --exclude '*/.venv/*,.venv,build,dist' . $(git ls-files ':!*.py' | while IFS= read -r f; do head -n1 \"$f\" 2>/dev/null | grep -qE '^#!.*(python|uv run)' && printf '%s\\n' \"$f\"; done)"
+        check = "uvx vulture --min-confidence 80 --exclude \"$(pwd -P)/.venv/*,$(pwd -P)/*/.venv/*,$(pwd -P)/build/*,$(pwd -P)/*/build/*,$(pwd -P)/dist/*,$(pwd -P)/*/dist/*,$(pwd -P)/.worktrees/*,$(pwd -P)/.claude/worktrees/*\" . $(git ls-files ':!*.py' | while IFS= read -r f; do head -n1 \"$f\" 2>/dev/null | grep -qE '^#!.*(python|uv run)' && printf '%s\\n' \"$f\"; done)"
     }
     // Duplication. jscpd 5.x via npx; config in `.jscpd.json`. `-f` scopes to code formats
     // (no config equivalent) so docs/yaml aren't flagged. (See SKILL.md › jscpd note.)

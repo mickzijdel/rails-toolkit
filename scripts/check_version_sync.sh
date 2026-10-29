@@ -11,7 +11,7 @@
 # image builds on a different Ruby than the tests ran on, or the suite goes green against a
 # database server nobody deploys.
 #
-# Part of the dev-env standard (dev-hooks:dev-env-setup, v27) — run by the hk `versions` step and
+# Part of the dev-env standard (dev-hooks:dev-env-setup, v29) — run by the hk `versions` step and
 # CI's `versions` job so the local and CI gates can't drift. Don't hand-edit the logic; the next
 # policy change should be a plain re-copy of the template (a repo's own formatter may re-indent
 # this file to local style, which is fine).
@@ -61,6 +61,10 @@ for f in mise.toml .mise.toml mise/config.toml .config/mise.toml .config/mise/co
 		break
 	fi
 done
+# mise writes the lock beside the config: mise/config.toml locks to mise/mise.lock, and
+# .mise.toml to the root mise.lock.
+LOCK=mise.lock
+[ -n "$MISE" ] && LOCK=$(dirname "$MISE")/mise.lock && LOCK=${LOCK#./}
 
 # Newline-separated, because a `for f in $DOCKERFILES` would word-split a name containing a
 # space. An unmatched glob is left literal by the shell (no nullglob here), so `Dockerfile.*` in
@@ -82,12 +86,20 @@ for f in Dockerfile Containerfile Dockerfile.* Containerfile.*; do
 "
 done
 
-# A mise.toml `[tools]` value. Handles both `node = "22.4.1"` and the table form
-# `ruby = { version = "4.0.2", compile = false }` by taking the first quoted string after `=`.
+# A mise config's pin for a tool: `node = "22.4.1"` and the inline table
+# `ruby = { version = "4.0.2", compile = false }` under `[tools]` (the first quoted string after
+# `=`), or the table `[tools.ruby]` with `version = "4.0.2"`.
 read_mise() {
 	[ -n "$MISE" ] || return 0
 	awk -v key="$1" '
-    /^[[:space:]]*\[/ { intools = ($0 ~ /^[[:space:]]*\[tools\][[:space:]]*$/); next }
+    /^[[:space:]]*\[/ {
+      intools = ($0 ~ /^[[:space:]]*\[tools\][[:space:]]*$/)
+      intable = ($0 ~ "^[[:space:]]*\\[tools\\.\"?" key "\"?\\][[:space:]]*$")
+      next
+    }
+    intable && /^[[:space:]]*version[[:space:]]*=/ {
+      if (match($0, /"[^"]*"/)) { print substr($0, RSTART + 1, RLENGTH - 2); exit }
+    }
     !intools { next }
     {
       line = $0
@@ -132,11 +144,11 @@ normalize() {
 
 lines() { printf '%s' "$1" | grep -c .; }
 
-# mise.lock's exact release for a tool: `[[tools.python]]` (or the older single-table
+# The lock's exact release for a tool: `[[tools.python]]` (or the older single-table
 # `[tools.python]`) followed by `version = "3.14.6"`. It is what mise installs locally and what
 # mise-action installs in CI, so it is the release every other pin is measured against.
 read_lock() {
-	[ -f mise.lock ] || return 0
+	[ -f "$LOCK" ] || return 0
 	awk -v key="$1" '
     /^\[\[?tools\.("[^"]*"|[^."\]]+)\]\]?[[:space:]]*$/ {
       h = $0
@@ -154,7 +166,7 @@ read_lock() {
       print v
       exit
     }
-  ' mise.lock
+  ' "$LOCK"
 }
 
 # A full release (3.12.12, 24.11.0) rather than a line of them (3.12, 24): setup-* actions and uv
@@ -372,11 +384,11 @@ own_vfile() {
 	esac
 }
 
-# A partial release floats: name what CI will resolve and, if mise.lock has it, what local runs.
+# A partial release floats: name what CI will resolve and, if the lock has it, what local runs.
 floats_msg() { # $1 tool, $2 partial version
 	local locked
 	locked=$(read_lock "$1")
-	printf 'CI resolves the newest %s.x%s; write the full release' "$2" "${locked:+, while mise.lock pins $locked}"
+	printf 'CI resolves the newest %s.x%s; write the full release' "$2" "${locked:+, while $LOCK pins $locked}"
 }
 
 # A step reading a version file: it must exist, name a full release, and — when it is not the
@@ -507,7 +519,7 @@ compare_sources() {
 }
 
 echo "Toolchain:"
-[ -n "$MISE" ] || skip "no mise.toml, so no mise pins to cross-check"
+[ -n "$MISE" ] || skip "no mise.toml or other mise config, so no mise pins to cross-check"
 [ -n "$DOCKERFILES" ] || skip "no Dockerfile, so no image-build ARGs to cross-check"
 
 # tool | version file (empty = no conventional one) | Dockerfile ARG
@@ -535,7 +547,7 @@ while IFS='|' read -r tool vfile arg; do
 		esac
 		locked=$(read_lock "$tool")
 		if [ -n "$locked" ]; then
-			add_source "mise.lock $tool" "$(normalize "$tool" "$locked")"
+			add_source "$LOCK $tool" "$(normalize "$tool" "$locked")"
 			floating=""
 		fi
 	fi
@@ -591,7 +603,7 @@ if [ -z "$WORKFLOWS" ]; then
 	skip "no workflows, nothing to check"
 elif [ "$nsetup" -eq 0 ]; then
 	if printf '%s' "$ci_rows" | grep -q $'\037jdx/mise-action\037'; then
-		skip "no setup-* steps; the workflows install their toolchain with mise-action (mise.lock)"
+		skip "no setup-* steps; the workflows install their toolchain with mise-action ($LOCK)"
 	else
 		skip "no language setup steps in the workflows"
 	fi
