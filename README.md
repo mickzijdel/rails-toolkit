@@ -29,7 +29,7 @@ illustrate the patterns and are not files in this repository or yours.
 - **PostToolUse** (`bin/rubocop-autocorrect-hook`): after Claude edits a Ruby file, runs RuboCop safe-autocorrect on it and reports any remaining offenses back as context. Self-guarding — only acts on `.rb`/`.rake`/`.gemspec` files in a project that opted into RuboCop (a `.rubocop.yml`) with a resolvable runner; no-ops silently everywhere else, and never blocks. See `rails-toolkit:rails-style` §10 for the stronger project-local `Stop`-hook variant.
 
 ### Vendored skills (git submodules)
-- **`vendor/rails-upgrade-skill`** ([ombulabs](https://github.com/ombulabs/claude-code_rails-upgrade-skill)) — exposes the `rails-upgrade` and `upgrade-cleanup` skills via `plugin.json`'s `skills` path.
+- **`vendor/rails-upgrade-skill`** ([ombulabs](https://github.com/ombulabs/claude-code_rails-upgrade-skill)) — exposes the `rails-upgrade` skill via `plugin.json`'s `skills` path. Its `upgrade-cleanup` companion sits one directory deeper (`upgrade-cleanup/upgrade-cleanup/`), so that path doesn't load it; nor does the plugin ship the `dual-boot` and `rails-load-defaults` skills rails-upgrade delegates to (`rails-core` says to do those steps inline).
 - **`vendor/clean-rspec-output`** ([thoughtbot](https://github.com/thoughtbot/clean-rspec-output)) — reference material for `rails-clean-test-output`; not registered directly, the wrapper skill reads it. Update either with `git submodule update --remote <path>` and commit the new pointer.
 
 ## Install
