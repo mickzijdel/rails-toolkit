@@ -11,7 +11,6 @@ import json
 import re
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parent.parent
 VENDORED_PATH = re.compile(r"`(\.\./\.\./vendor/[^`]+)`")
 
@@ -48,4 +47,4 @@ def test_wrapper_vendored_paths_exist():
 def test_rails_upgrade_wrapper_keeps_the_skill_name():
     """rails-core and rails-audit link [[rails-upgrade]], so the wrapper keeps that name."""
     text = (ROOT / "skills" / "rails-upgrade" / "SKILL.md").read_text()
-    assert re.search(r"^name: rails-upgrade$", text, re.M)
+    assert re.search(r"^name: rails-upgrade$", text, re.MULTILINE)

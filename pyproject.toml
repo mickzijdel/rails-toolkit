@@ -14,7 +14,7 @@ dependencies = []
 [dependency-groups]
 dev = [
     "pytest",
-    "ruff",
+    "ruff>=0.17,<0.18",
     "vulture",   # dead-code audit; run via `uv run vulture`
     # Mirror here any libraries the bundled scripts declare in their PEP 723 blocks,
     # so the test environment can import/run them.
@@ -26,6 +26,14 @@ package = false
 # ≥4 days, so a malicious upload is caught/yanked before it lands here. Rolling duration, so the
 # window moves with today's date. Urgent override: exclude-newer-package = { foo = "0 days" }.
 exclude-newer = "4 days"
+
+[tool.ruff.lint]
+ignore = ["UP031"]  # %-format → .format(): style only, the fix doesn't produce f-strings
+
+[tool.ruff.lint.per-file-ignores]
+"**/tests/**" = ["PLW1510"]  # tests assert returncode themselves
+"**/test_*.py" = ["PLW1510"]
+"**/conftest.py" = ["PLW1510"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

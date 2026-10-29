@@ -23,7 +23,6 @@ from pathlib import Path
 
 import pytest
 
-
 ROOT = Path(__file__).resolve().parent.parent
 HOOK = ROOT / "bin" / "rails-detect-hook"
 RUBOCOP_HOOK = ROOT / "bin" / "rubocop-autocorrect-hook"

@@ -31,12 +31,16 @@ jobs:
         # shfmt's directory walk already detects extensionless shell scripts by shebang,
         # so `.` covers bin/foo + hooks too.
         run: shfmt -d .
-      - name: Run ruff (Python incl. extensionless PEP 723 scripts)
+      - name: Run ruff (Python incl. extensionless PEP 723 scripts, and Python blocks in Markdown)
         # *.py plus extensionless python/uv scripts detected by shebang — mirrors the hk
-        # ruff-*-scripts steps. (No-op if the repo has no Python.)
+        # ruff-*-scripts steps — and, for the format check only, *.md: ruff >= 0.16 formats the
+        # Python blocks in Markdown, as the hk ruff-format step does. --force-exclude makes these
+        # listed files obey the config's exclude/extend-exclude. (No-op if the repo has neither.)
         run: |
           files=$( { git ls-files '*.py'; git ls-files ':!*.py' | while IFS= read -r f; do head -n1 "$f" 2>/dev/null | grep -qE '^#!.*(python|uv run)' && printf '%s\n' "$f"; done; } | sort -u )
-          if [ -n "$files" ]; then ruff check $files && ruff format --check $files; else echo "no python files, skipping"; fi
+          md=$(git ls-files '*.md')
+          if [ -n "$files" ]; then ruff check --force-exclude $files; fi
+          if [ -n "$files$md" ]; then ruff format --check --force-exclude $files $md; else echo "no python or markdown files, skipping"; fi
       - name: Executable bits on shipped scripts
         # Any tracked file whose first line is a shebang must be mode 100755 in the
         # index — with core.fileMode=false a local chmod never reaches git, and a

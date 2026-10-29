@@ -12,7 +12,7 @@ local linters = new Mapping<String, Step> {
         fix = "ruff check --force-exclude --fix {{ files }}"
     }
     ["ruff-format"] {
-        glob = "**/*.py"
+        glob = List("**/*.py", "**/*.md")
         check = "ruff format --force-exclude --diff {{ files }}"
         fix = "ruff format --force-exclude {{ files }}"
     }
@@ -64,7 +64,7 @@ local linters = new Mapping<String, Step> {
     // CI's `versions` job runs the same script, so the two gates can't drift. Extend the glob if
     // this repo pins a version somewhere else.
     ["versions"] {
-        glob = List("mise.toml", "mise.lock", ".python-version", "Dockerfile", "docker-compose.yml", "compose.yaml", "config/deploy.yml", ".devcontainer/compose.yaml", ".github/workflows/*.yml")
+        glob = List("mise.toml", "mise.lock", "uv.lock", ".python-version", "Dockerfile", "docker-compose.yml", "compose.yaml", "config/deploy.yml", ".devcontainer/compose.yaml", ".github/workflows/*.yml")
         check = "bash scripts/check_version_sync.sh"
     }
     // --- Audits (dead-code + duplication) ---------------------------------------
