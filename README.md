@@ -16,6 +16,7 @@ gotchas skill, and a Rails-detection session hook.
 - **rails-logging** — structured logging with Lograge (JSON one-line request logs), tagged logging, log level guidance, sensitive parameter filtering, ActiveSupport::Notifications instrumentation, Sentry integration, health check endpoints, and log rotation.
 - **rails-migrations** — safe zero-downtime migration patterns: `strong_migrations` gem, concurrent index creation, column removal via `ignored_columns`, dual-write column/table renames, `in_batches` data backfills, column type changes, and reversibility.
 - **rails-audit** — top-level health-check of an existing/inherited app (version pinning, bundler-audit/brakeman, exposed secrets, seeds, tech debt) that orchestrates the deep-dive skills and emits a severity-ranked report.
+- **rails-upgrade** — Rails version upgrades (2.3 → 8.1): breaking changes, deprecations, gem compatibility, multi-hop plans. Wraps OmbuLabs' vendored `rails-upgrade` skill behind guard rules: production steps and secret values stay with the user, installs need a yes, and the vendored files' "MANDATORY" wording can't override either.
 - **rails-multi-tenancy**, **rails-security**, **rails-project-setup**.
 - **rails-api** — API-only and JSON API design: `Api::BaseController` setup, namespace versioning, Jbuilder/Blueprinter serialization, CORS with rack-cors, offset (pagy) and keyset/cursor pagination, standardized JSON error responses, authentication guidance, and request-spec/Minitest patterns.
 - **rails-mailers** — ActionMailer setup: shallow mailers triggered from commit hooks, multipart HTML/text templates with `premailer-rails` inlining, i18n subjects, `/rails/mailers` previews, `letter_opener` for local delivery, reusing the `rails-jobs` retry concern for delivery errors, bounce/complaint suppression, and `assert_emails`/`assert_enqueued_email_with` testing.
@@ -29,14 +30,19 @@ illustrate the patterns and are not files in this repository or yours.
 - **PostToolUse** (`bin/rubocop-autocorrect-hook`): after Claude edits a Ruby file, runs RuboCop safe-autocorrect on it and reports any remaining offenses back as context. Self-guarding — only acts on `.rb`/`.rake`/`.gemspec` files in a project that opted into RuboCop (a `.rubocop.yml`) with a resolvable runner; no-ops silently everywhere else, and never blocks. See `rails-toolkit:rails-style` §10 for the stronger project-local `Stop`-hook variant.
 
 ### Vendored skills (git submodules)
-- **`vendor/rails-upgrade-skill`** ([ombulabs](https://github.com/ombulabs/claude-code_rails-upgrade-skill)) — exposes the `rails-upgrade` skill via `plugin.json`'s `skills` path. Its `upgrade-cleanup` companion sits one directory deeper (`upgrade-cleanup/upgrade-cleanup/`), so that path doesn't load it; nor does the plugin ship the `dual-boot` and `rails-load-defaults` skills rails-upgrade delegates to (`rails-core` says to do those steps inline).
+- **`vendor/rails-upgrade-skill`** ([ombulabs](https://github.com/ombulabs/claude-code_rails-upgrade-skill)) — read by the `rails-upgrade` wrapper skill, after its guard rules; not registered directly. Its `upgrade-cleanup` companion isn't loaded either, nor does the plugin ship the `dual-boot` and `rails-load-defaults` skills rails-upgrade delegates to (`rails-core` says to do those steps inline).
 - **`vendor/clean-rspec-output`** ([thoughtbot](https://github.com/thoughtbot/clean-rspec-output)) — reference material for `rails-clean-test-output`; not registered directly, the wrapper skill reads it.
+
+The plugin loads skills only from `skills/`, so a skill folder an upstream adds stays unloaded
+until a wrapper here points at it. `tests/test_skill_layout.py` keeps `vendor/` out of
+`plugin.json`'s skills and checks that each wrapper's vendored path still exists.
 
 Both follow their upstream's default branch (`branch = main` in `.gitmodules`). Dependabot
 (`.github/dependabot.yml`) checks weekly and opens a PR when either upstream has moved, once
-the new commit is 7 days old. Each such PR is third-party prompt content that loads straight
-into Claude's context: read its diff before merging, and look for instructions to fetch from
-the network, install things, post anywhere or change settings. To update by hand, run
+the new commit is 7 days old, and a cloud routine posts an automatic Claude review comment on
+each such PR. The PR is still third-party prompt content that reaches Claude's context when a
+wrapper reads it: read its diff before merging, and look for instructions to fetch from the
+network, install things, post anywhere or change settings. To update by hand, run
 `git submodule update --remote <path>` and commit the new pointer.
 
 ## Install

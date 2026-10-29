@@ -109,7 +109,7 @@ Factory and fixture changes have cascading effects across the entire suite. Afte
 - Internationalization: locale files, pluralization, formatting, missing/unused keys → [[rails-i18n]]
 - Logging and observability: structured request logs, tagged logging, parameter filtering, error tracking, health checks → [[rails-logging]]
 - ActionMailer mailers: layouts, previews, delivery, attachments, bounces → [[rails-mailers]]
-- **Upgrading Rails versions** (2.3 → 8.1, breaking changes, deprecations, multi-hop plans) → [[rails-upgrade]] — the vendored OmbuLabs/FastRuby.io upgrade skill. Reach for it whenever an upgrade is on the table; do **not** hand-roll the version bump.
+- **Upgrading Rails versions** (2.3 → 8.1, breaking changes, deprecations, multi-hop plans) → [[rails-upgrade]] — guard rules, then the vendored OmbuLabs/FastRuby.io upgrade skill. Reach for it whenever an upgrade is on the table; do **not** hand-roll the version bump.
   Upgrade **in place** and skip rails-upgrade's dual-boot step unless the user asks for
   dual-booting. The `dual-boot`, `rails-load-defaults` and `upgrade-cleanup` skills it delegates
   to aren't installed here, so do any such step inline rather than waiting on them.
