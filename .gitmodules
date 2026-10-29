@@ -1,6 +1,8 @@
 [submodule "vendor/rails-upgrade-skill"]
 	path = vendor/rails-upgrade-skill
 	url = https://github.com/ombulabs/claude-code_rails-upgrade-skill
+	branch = main
 [submodule "vendor/clean-rspec-output"]
 	path = vendor/clean-rspec-output
 	url = https://github.com/thoughtbot/clean-rspec-output
+	branch = main

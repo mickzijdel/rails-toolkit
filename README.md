@@ -30,7 +30,14 @@ illustrate the patterns and are not files in this repository or yours.
 
 ### Vendored skills (git submodules)
 - **`vendor/rails-upgrade-skill`** ([ombulabs](https://github.com/ombulabs/claude-code_rails-upgrade-skill)) — exposes the `rails-upgrade` skill via `plugin.json`'s `skills` path. Its `upgrade-cleanup` companion sits one directory deeper (`upgrade-cleanup/upgrade-cleanup/`), so that path doesn't load it; nor does the plugin ship the `dual-boot` and `rails-load-defaults` skills rails-upgrade delegates to (`rails-core` says to do those steps inline).
-- **`vendor/clean-rspec-output`** ([thoughtbot](https://github.com/thoughtbot/clean-rspec-output)) — reference material for `rails-clean-test-output`; not registered directly, the wrapper skill reads it. Update either with `git submodule update --remote <path>` and commit the new pointer.
+- **`vendor/clean-rspec-output`** ([thoughtbot](https://github.com/thoughtbot/clean-rspec-output)) — reference material for `rails-clean-test-output`; not registered directly, the wrapper skill reads it.
+
+Both follow their upstream's default branch (`branch = main` in `.gitmodules`). Dependabot
+(`.github/dependabot.yml`) checks weekly and opens a PR when either upstream has moved, once
+the new commit is 7 days old. Each such PR is third-party prompt content that loads straight
+into Claude's context: read its diff before merging, and look for instructions to fetch from
+the network, install things, post anywhere or change settings. To update by hand, run
+`git submodule update --remote <path>` and commit the new pointer.
 
 ## Install
 
