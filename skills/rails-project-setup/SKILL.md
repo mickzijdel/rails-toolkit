@@ -10,8 +10,8 @@ description: Use when setting up a new Rails 8 project with modern stack (Solid 
 The Solid Stack (solid_queue, solid_cache, solid_cable) plus propshaft, importmap-rails, kamal, and thruster — a complete Rails 8 setup with no Redis dependency.
 
 ```ruby
-# cooldown: gems must be public 4 days before resolving (supply-chain defense, Bundler 4.0.13+)
-source "https://rubygems.org", cooldown: 4
+# cooldown: gems must be public 3 days before resolving (supply-chain defense, Bundler 4.0.13+)
+source "https://rubygems.org", cooldown: 3
 
 gem "rails", "~> 8.1"
 
@@ -37,7 +37,7 @@ gem "mission_control-jobs"     # web UI for Solid Queue
 ```
 
 **Bundler cooldown (supply-chain defense):**
-- `cooldown: 4` on the `source` line means gems must have been public for 4 days before Bundler will resolve them, so freshly-hijacked releases can be vetted/yanked first ([announcement](https://blog.rubygems.org/2026/06/03/cooldown-let-new-gems-be-vetted.html)). Needs Bundler 4.0.13+ (check `BUNDLED WITH` in Gemfile.lock; older versions silently ignore `cooldown`).
+- `cooldown: 3` on the `source` line means gems must have been public for 3 days before Bundler will resolve them, so freshly-hijacked releases can be vetted/yanked first ([announcement](https://blog.rubygems.org/2026/06/03/cooldown-let-new-gems-be-vetted.html)). Needs Bundler 4.0.13+ (check `BUNDLED WITH` in Gemfile.lock; older versions silently ignore `cooldown`).
 - Complement it machine-wide with `bundle config set --global cooldown 4`; the explicit per-Gemfile line documents the policy and survives global-config changes.
 - Scope: own projects only — never add it to vendored gem Gemfiles, `.ruby-lsp/Gemfile`, or appraisal gemfiles.
 
@@ -385,7 +385,7 @@ end
 
 ### New Project Checklist
 
-1. Add Solid Stack gems to Gemfile (with `cooldown: 4` on the source line)
+1. Add Solid Stack gems to Gemfile (with `cooldown: 3` on the source line)
 2. Create `config/queue.yml`, `config/cache.yml`, `config/cable.yml`
 3. Configure multiple databases in `config/database.yml`
 4. Add `plugin :solid_queue` to `config/puma.rb`

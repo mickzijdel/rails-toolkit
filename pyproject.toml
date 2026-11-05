@@ -23,9 +23,9 @@ dev = [
 [tool.uv]
 package = false
 # Dependency cooldown (dev-env standard v6): don't resolve a release until it's been public
-# ≥4 days, so a malicious upload is caught/yanked before it lands here. Rolling duration, so the
+# ≥3 days, so a malicious upload is caught/yanked before it lands here. Rolling duration, so the
 # window moves with today's date. Urgent override: exclude-newer-package = { foo = "0 days" }.
-exclude-newer = "4 days"
+exclude-newer = "3 days"
 
 [tool.ruff.lint]
 ignore = ["UP031"]  # %-format → .format(): style only, the fix doesn't produce f-strings

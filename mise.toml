@@ -20,15 +20,15 @@ node = "latest"            # provides npx, used to run jscpd 5.x (`npx --yes jsc
 # reproducible + checksum-verified (aqua-backed tools add Cosign/SLSA). Upgrade with
 # `mise upgrade`, then commit the changed mise.lock.
 lockfile = true
-# Prevent `mise upgrade` from resolving a tool version published in the last 4 days — same
+# Prevent `mise upgrade` from resolving a tool version published in the last 3 days — same
 # supply-chain window as the Bundler/uv/npm dependency cooldowns. `mise install` is unaffected
 # (it always reproduces the locked version from mise.lock).
-minimum_release_age = "4d"
+minimum_release_age = "3d"
 
 [env]
 # dev-env standard version this repo targets (dev-hooks:dev-env-setup). Do not
 # hand-edit — bump it by running the skill's upgrade path.
-DEV_ENV_VERSION = "30"
+DEV_ENV_VERSION = "31"
 # uv uses the Python mise installs, never one of its own. Without only-system uv prefers its
 # managed interpreters over mise's, so local and CI would run different releases; mise's shims
 # apply this [env] locally and mise-action exports it in CI.

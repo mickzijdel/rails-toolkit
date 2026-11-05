@@ -19,7 +19,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: jdx/mise-action@82a612c5ab8bcda7cc5db6b7e81a8e7584c3dc6e # v5.2.3
+      - uses: jdx/mise-action@6612f0ef07ed2a736cd1e00a94a065522dd41195 # v5.2.5
       - name: Run shellcheck
         # *.sh/*.bash plus extensionless shell scripts detected by a line-1 shebang (bin/foo,
         # hooks) — mirrors the hk `shellcheck-scripts` step so CI and pre-commit agree. Match
@@ -62,7 +62,7 @@ jobs:
           persist-credentials: false
           submodules: true # tests/test_skill_layout.py resolves the wrappers' vendored paths
       - name: Install Python + uv (exact releases from mise.lock)
-        uses: jdx/mise-action@82a612c5ab8bcda7cc5db6b7e81a8e7584c3dc6e # v5.2.3
+        uses: jdx/mise-action@6612f0ef07ed2a736cd1e00a94a065522dd41195 # v5.2.5
         with:
           install_args: python uv
       # Plugin/script repos: run the test suite for bundled scripts (see readoc's
@@ -94,7 +94,7 @@ jobs:
         with:
           fetch-depth: 0 # gitleaks git scans the full commit history
           persist-credentials: false
-      - uses: jdx/mise-action@82a612c5ab8bcda7cc5db6b7e81a8e7584c3dc6e # v5.2.3
+      - uses: jdx/mise-action@6612f0ef07ed2a736cd1e00a94a065522dd41195 # v5.2.5
       - name: Scan git history for secrets
         run: mise exec -- gitleaks git --redact --no-banner .
 
@@ -108,7 +108,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: jdx/mise-action@82a612c5ab8bcda7cc5db6b7e81a8e7584c3dc6e # v5.2.3
+      - uses: jdx/mise-action@6612f0ef07ed2a736cd1e00a94a065522dd41195 # v5.2.5
       - name: Lint workflows (actionlint)
         run: actionlint -shellcheck=
       - name: Scan workflows with zizmor
@@ -123,7 +123,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
       - name: Install Python + uv (exact releases from mise.lock)
-        uses: jdx/mise-action@82a612c5ab8bcda7cc5db6b7e81a8e7584c3dc6e # v5.2.3
+        uses: jdx/mise-action@6612f0ef07ed2a736cd1e00a94a065522dd41195 # v5.2.5
         with:
           install_args: python uv
       - name: Dead code (vulture, Python incl. extensionless PEP 723 scripts)
@@ -136,7 +136,7 @@ jobs:
       - name: Duplication (jscpd)
         # -f scopes to code formats (no config equivalent); .jscpd.json carries
         # minTokens/threshold/reporters/gitignore/ignorePattern.
-        # Runner + version policy (latest on a 4-day cooldown, floored at v5 — see
+        # Runner + version policy (latest on a 3-day cooldown, floored at v5 — see
         # SKILL.md › jscpd version policy) are shared with the hk pre-commit gate via
         # scripts/run-jscpd.sh; --require keeps CI strict (unrunnable jscpd fails the job).
         run: bash scripts/run-jscpd.sh --require python,bash

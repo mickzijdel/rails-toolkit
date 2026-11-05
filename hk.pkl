@@ -84,7 +84,7 @@ local linters = new Mapping<String, Step> {
     }
     // Duplication. jscpd 5.x via npx; config in `.jscpd.json`. `-f` scopes to code formats
     // (no config equivalent) so docs/yaml aren't flagged. (See SKILL.md › jscpd note.)
-    // The version-cooldown policy (latest on a 4-day cooldown, floored at v5) and the
+    // The version-cooldown policy (latest on a 3-day cooldown, floored at v5) and the
     // offline fallback live in scripts/run-jscpd.sh, shared with the CI audit job so the
     // local and CI gates can't drift.
     ["jscpd"] {

@@ -6,3 +6,10 @@ updates:
     interval: weekly
   cooldown:
     default-days: 7
+  groups:
+    submodules:
+      patterns: ["*"]
+      update-types: [minor, patch]
+    submodules-security:
+      applies-to: security-updates
+      patterns: ["*"]
